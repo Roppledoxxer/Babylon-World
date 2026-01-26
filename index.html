@@ -31,16 +31,16 @@ const scene = new BABYLON.Scene(engine);
 scene.clearColor = new BABYLON.Color3(0.53, 0.81, 0.92);
 
 /* CAMERA */
-const camera = new BABYLON.FollowCamera("cam", new BABYLON.Vector3(0, 6, -12), scene);
-camera.radius = 12;
-camera.heightOffset = 5;
+const camera = new BABYLON.FollowCamera("cam", new BABYLON.Vector3(0, 12, -30), scene);
+camera.radius = 24;
+camera.heightOffset = 8;
 camera.rotationOffset = 180;
 camera.attachControl(canvas, true);
 
 /* LIGHTS (SUN + HEMI) */
 const sun = new BABYLON.DirectionalLight("sun",
   new BABYLON.Vector3(-0.4, -1, -0.3), scene);
-sun.intensity = 0.6;
+sun.intensity = 0.7;
 
 const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
 hemi.intensity = 0.35;
@@ -72,33 +72,28 @@ cloudMat.disableLighting = true;
 
 const clouds = BABYLON.MeshBuilder.CreatePlane("clouds", { size: 600 }, scene);
 clouds.rotation.x = Math.PI / 2;
-clouds.position.y = 120;
+clouds.position.y = 220;
 clouds.material = cloudMat;
 
 /* GROUND */
 const ground = BABYLON.MeshBuilder.CreateGround("ground", {
-  width: 500, height: 500
+  width: 1000, height: 1000
 }, scene);
 
-/* Bright green tile texture (clear tiles)
-   - Each tile image contains a 4x4 grid of slightly darker squares on a bright green base.
-   - The tile is set to repeat across the ground so you see many tiles.
-*/
+/* Bright green tile texture (clear tiles) */
 const TILE_SIZE = 512;
 const tileTex = new BABYLON.DynamicTexture("grassTile", { width: TILE_SIZE, height: TILE_SIZE }, scene, false);
 const tctx = tileTex.getContext();
 const tw = TILE_SIZE, th = TILE_SIZE;
 
-// bright base color
-const bright = "#39ff33"; // bright green
+const bright = "#39ff33";
 tctx.fillStyle = bright;
 tctx.fillRect(0, 0, tw, th);
 
-// draw a clear grid of slightly darker tiles (4x4)
 const gridCount = 4;
 const cellW = Math.floor(tw / gridCount);
 const cellH = Math.floor(th / gridCount);
-const inset = 4; // give small inset so seams look nicer
+const inset = 4;
 
 for (let gx = 0; gx < gridCount; gx++) {
   for (let gy = 0; gy < gridCount; gy++) {
@@ -123,10 +118,9 @@ for (let gx = 0; gx < gridCount; gx++) {
   }
 }
 
-// very light noise to reduce banding
 const img = tctx.getImageData(0, 0, tw, th);
 for (let i = 0; i < img.data.length; i += 4) {
-  const n = (Math.random() - 0.5) * 8; // small ± noise
+  const n = (Math.random() - 0.5) * 8;
   img.data[i] = Math.max(0, Math.min(255, img.data[i] + n));
   img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + n));
   img.data[i+2] = Math.max(0, Math.min(255, img.data[i+2] + n));
@@ -138,7 +132,7 @@ tileTex.wrapU = tileTex.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
 
 const grassMat = new BABYLON.StandardMaterial("grass", scene);
 grassMat.diffuseTexture = tileTex;
-grassMat.diffuseTexture.uScale = grassMat.diffuseTexture.vScale = 12;
+grassMat.diffuseTexture.uScale = grassMat.diffuseTexture.vScale = 20;
 grassMat.specularColor = new BABYLON.Color3(0, 0, 0);
 ground.material = grassMat;
 
@@ -147,35 +141,24 @@ const player = new BABYLON.TransformNode("player", scene);
 const GROUNDED_Y = 3;
 player.position.y = GROUNDED_Y;
 
-/* --- MOVED TORSO UP (only change requested) --- */
+/* torso */
 const torso = BABYLON.MeshBuilder.CreateBox("torso", {
   width: 2, height: 2, depth: 1
 }, scene);
 torso.parent = player;
-// moved torso up by +0.5 on Y (was 0)
 torso.position.set(0, 0, 0);
 
-/* Limb creation with pivots placed at the top of each limb so rotations occur at shoulder/hip */
-
-/* HEAD (moved up by same amount so it stays attached correctly) */
+/* head */
 const head = BABYLON.MeshBuilder.CreateBox("head", { size: 1.5 }, scene);
-// head was at 1.75; moved up by +0.5 to 2.25
 head.position.set(0, 1.8, 0);
 head.parent = torso;
 
-/* ARMS
-   - Arm mesh has height=2; top/shoulder is at local y = +1
-   - setPivotPoint(0,1,0) makes rotation occur around the shoulder
-   - position the mesh so pivot sits at the shoulder location relative to torso
-*/
+/* arms */
 const leftArm = BABYLON.MeshBuilder.CreateBox("lArm", {
   height: 2, width: 0.8, depth: 0.8
 }, scene);
-// pivot at top of arm (shoulder)
 leftArm.setPivotPoint(new BABYLON.Vector3(0, 1, 0));
-// attach to torso and position pivot where shoulder should be
 leftArm.parent = torso;
-// shoulder height: ~0.6 (tweak if you want higher/lower)
 leftArm.position.set(-1.4, 0, 0);
 
 const rightArm = leftArm.clone("rArm");
@@ -183,17 +166,12 @@ rightArm.setPivotPoint(new BABYLON.Vector3(0, 1, 0));
 rightArm.parent = torso;
 rightArm.position.set(1.4, 0, 0);
 
-/* LEGS
-   - Leg mesh has height=2; hip/top is at local y = +1
-   - setPivotPoint(0,1,0) makes rotation occur around the hip
-   - position pivot so it sits at torso bottom (hip) which is at y = -1
-*/
+/* legs */
 const leftLeg = BABYLON.MeshBuilder.CreateBox("lLeg", {
   height: 2, width: 0.9, depth: 0.9
 }, scene);
 leftLeg.setPivotPoint(new BABYLON.Vector3(0, 1, 0));
 leftLeg.parent = torso;
-// hip/top sits at torso bottom (torso center is 0; torso half height is 1 => bottom is y=-1)
 leftLeg.position.set(-0.5, -1.9, 0);
 
 const rightLeg = leftLeg.clone("rLeg");
@@ -201,24 +179,61 @@ rightLeg.setPivotPoint(new BABYLON.Vector3(0, 1, 0));
 rightLeg.parent = torso;
 rightLeg.position.set(0.5, -1.9, 0);
 
-/* MATERIAL */
+/* material */
 const bodyMat = new BABYLON.StandardMaterial("body", scene);
 bodyMat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+[torso, head, leftArm, rightArm, leftLeg, rightLeg].forEach(m => m.material = bodyMat);
 
-[torso, head, leftArm, rightArm, leftLeg, rightLeg].forEach(m => {
-  m.material = bodyMat;
-});
-
-/* Lock camera onto the torso mesh (a mesh target avoids issues) */
 camera.lockedTarget = torso;
 
-/* PHYSICS-like vars */
-let velocityY = 0;
-// give the player gravity so they fall naturally if not supported
-const GRAVITY = -20; // units/s^2 (negative = downward)
-let grounded = false; // start not-force-locked to ground so gravity applies immediately
+/* =========================
+   POINTER LOCK + MOUSE LOOK
+   ========================= */
 
-/* INPUT */
+canvas.addEventListener("click", () => {
+  canvas.requestPointerLock =
+    canvas.requestPointerLock ||
+    canvas.msRequestPointerLock ||
+    canvas.mozRequestPointerLock ||
+    canvas.webkitRequestPointerLock;
+
+  if (canvas.requestPointerLock) {
+    canvas.requestPointerLock();
+  }
+});
+
+let mouseSensitivity = 0.0025;
+
+scene.onPointerObservable.add((pointerInfo) => {
+  if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
+    if (document.pointerLockElement === canvas) {
+      const evt = pointerInfo.event;
+
+      const dx = evt.movementX || 0;
+      const dy = evt.movementY || 0;
+
+      // Rotate player (left/right)
+      player.rotation.y += dx * mouseSensitivity;
+
+      // Camera vertical look (clamped)
+      camera.heightOffset -= dy * 0.05;
+      camera.heightOffset = BABYLON.Scalar.Clamp(
+        camera.heightOffset,
+        4,
+        14
+      );
+    }
+  }
+});
+
+
+/* physics-like vars */
+let velocityY = 0;
+const GRAVITY = -20;
+let grounded = false;
+let prevFeetY = player.position.y - GROUNDED_Y;
+
+/* input */
 const input = {};
 scene.onKeyboardObservable.add(kb => {
   const key = (kb.event && (kb.event.code || kb.event.key)) ? (kb.event.code || kb.event.key) : '';
@@ -232,15 +247,182 @@ scene.onKeyboardObservable.add(kb => {
   }
 });
 
-/* ANIMATION */
 let walkTime = 0;
 
+/* ---------------------------
+   SUPER BIG HOUSE (solid) + triangular roof
+   --------------------------- */
+const houseRoot = new BABYLON.TransformNode("houseRoot", scene);
+
+const wallMat = new BABYLON.StandardMaterial("wallMat", scene);
+wallMat.diffuseColor = new BABYLON.Color3(0.95, 0.9, 0.8);
+
+const roofMat = new BABYLON.StandardMaterial("roofMat", scene);
+roofMat.diffuseColor = new BABYLON.Color3(0.55, 0.12, 0.12);
+
+const doorMat = new BABYLON.StandardMaterial("doorMat", scene);
+doorMat.diffuseColor = new BABYLON.Color3(0.4, 0.2, 0.1);
+
+const houseWidth = 40;   // much wider
+const houseDepth = 28;   // much deeper
+const wallHeight = 10;   // taller walls
+const houseX = 60;
+const houseZ = -30;
+const houseY = 0.25;
+
+// big floor
+const houseFloor = BABYLON.MeshBuilder.CreateBox("houseFloor", {
+  width: houseWidth, depth: houseDepth, height: 0.6
+}, scene);
+houseFloor.position.set(houseX, houseY - 0.3, houseZ);
+houseFloor.material = wallMat;
+houseFloor.parent = houseRoot;
+
+// front wall split for entrance
+const thickness = 0.5;
+const doorWidth = 4.0;
+const halfWallWidth = (houseWidth - doorWidth) / 2;
+
+// left front wall
+const frontLeft = BABYLON.MeshBuilder.CreateBox("houseWallFrontLeft", {
+  width: halfWallWidth, height: wallHeight, depth: thickness
+}, scene);
+frontLeft.position.set(houseX - (doorWidth + halfWallWidth)/2, wallHeight/2 + houseY, houseZ - houseDepth/2 + thickness/2);
+frontLeft.material = wallMat;
+frontLeft.parent = houseRoot;
+
+// right front wall
+const frontRight = BABYLON.MeshBuilder.CreateBox("houseWallFrontRight", {
+  width: halfWallWidth, height: wallHeight, depth: thickness
+}, scene);
+frontRight.position.set(houseX + (doorWidth + halfWallWidth)/2, wallHeight/2 + houseY, houseZ - houseDepth/2 + thickness/2);
+frontRight.material = wallMat;
+frontRight.parent = houseRoot;
+
+// back wall
+const backWall = BABYLON.MeshBuilder.CreateBox("houseWallBack", {
+  width: houseWidth, height: wallHeight, depth: thickness
+}, scene);
+backWall.position.set(houseX, wallHeight/2 + houseY, houseZ + houseDepth/2 - thickness/2);
+backWall.material = wallMat;
+backWall.parent = houseRoot;
+
+// left & right side walls
+const leftWall = BABYLON.MeshBuilder.CreateBox("houseWallLeft", {
+  width: thickness, height: wallHeight, depth: houseDepth
+}, scene);
+leftWall.position.set(houseX - houseWidth/2 + thickness/2, wallHeight/2 + houseY, houseZ);
+leftWall.material = wallMat;
+leftWall.parent = houseRoot;
+
+const rightWall = leftWall.clone("houseWallRight");
+rightWall.position.set(houseX + houseWidth/2 - thickness/2, wallHeight/2 + houseY, houseZ);
+rightWall.parent = houseRoot;
+
+// door frame (visual only)
+const doorFrame = BABYLON.MeshBuilder.CreatePlane("doorFrame", { width: doorWidth, height: 3.2 }, scene);
+doorFrame.position.set(houseX, 1.6 + houseY, houseZ - houseDepth/2 + 0.02);
+doorFrame.rotation.y = Math.PI;
+doorFrame.material = doorMat;
+doorFrame.parent = houseRoot;
+
+// triangular roof: use a triangular prism (cylinder tessellation=3) placed above the house
+const roof = BABYLON.MeshBuilder.CreateCylinder("houseRoof", {
+  diameterTop: 0.01,
+  diameterBottom: houseWidth * 1.05,
+  height: houseDepth * 1.02,
+  tessellation: 3
+}, scene);
+// rotate so triangular cross-section sits across the house width and length aligns with depth
+roof.rotation.z = Math.PI / 2;
+roof.rotation.y = Math.PI / 4;
+roof.position.set(houseX, wallHeight + 2.8 + houseY, houseZ);
+roof.material = roofMat;
+roof.parent = houseRoot;
+
+// windows for scale
+const windowMat = new BABYLON.StandardMaterial("windowMat", scene);
+windowMat.diffuseColor = new BABYLON.Color3(0.2, 0.5, 0.9);
+windowMat.alpha = 0.7;
+
+const win1 = BABYLON.MeshBuilder.CreatePlane("window1", { width: 2.6, height: 2 }, scene);
+win1.position.set(houseX - 10, 4.2 + houseY, houseZ - houseDepth/2 + 0.02);
+win1.rotation.y = Math.PI;
+win1.material = windowMat;
+win1.parent = houseRoot;
+
+const win2 = win1.clone("window2");
+win2.position.set(houseX + 10, 4.2 + houseY, houseZ - houseDepth/2 + 0.02);
+win2.parent = houseRoot;
+
+// interior table for scale
+const table = BABYLON.MeshBuilder.CreateBox("table", { width: 4, depth: 2.2, height: 0.4 }, scene);
+table.position.set(houseX, houseY + 0.45, houseZ);
+const tableMat = new BABYLON.StandardMaterial("tableMat", scene);
+tableMat.diffuseColor = new BABYLON.Color3(0.55, 0.35, 0.15);
+table.material = tableMat;
+table.parent = houseRoot;
+
+/* ---------------------------
+   PARKOUR (higher)
+   --------------------------- */
+const platformMat = new BABYLON.StandardMaterial("platformMat", scene);
+platformMat.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.25);
+platformMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+
+const platforms = [];
+const startZ = -6;
+for (let i = 0; i < 12; i++) {
+  const pw = 3 + Math.random() * 2;
+  const pd = 3 + Math.random() * 2;
+  const ph = 0.6;
+  const px = (Math.random() - 0.5) * 12;
+  const pz = startZ - i * 12;
+  let py = 1.2 + i * 1.1;
+  if (i % 4 === 0) py += 2.0 + Math.random() * 2.0;
+  if (i === 11) py += 3;
+  const plat = BABYLON.MeshBuilder.CreateBox(`platform_${i}`, {
+    width: pw, depth: pd, height: ph
+  }, scene);
+  plat.position.set(px, py, pz);
+  plat.material = platformMat;
+  platforms.push(plat);
+}
+
+// pillar platforms
+for (let j = 0; j < 4; j++) {
+  const pw = 1.2, pd = 1.2, ph = 0.6;
+  const px = -12 + j * 6;
+  const pz = -120 - j * 12;
+  const py = 6 + j * 1.8;
+  const plat = BABYLON.MeshBuilder.CreateBox(`pillar_${j}`, {
+    width: pw, depth: pd, height: ph
+  }, scene);
+  plat.position.set(px, py, pz);
+  plat.material = platformMat;
+  platforms.push(plat);
+}
+
+const challenge = BABYLON.MeshBuilder.CreateBox("platform_challenge", {
+  width: 10, depth: 10, height: 0.8
+}, scene);
+challenge.position.set(houseX + 28, 6.0, houseZ - 2);
+challenge.material = platformMat;
+
+/* Prepare solid surfaces (floor, platforms, house geometry, roof) */
+const solidSurfaces = [ground, houseFloor, challenge, roof];
+platforms.forEach(p => solidSurfaces.push(p));
+solidSurfaces.push(frontLeft, frontRight, backWall, leftWall, rightWall);
+
+/* ---------------------------
+   RUNTIME: movement, gravity, AABB landing + horizontal blocking for house walls
+   --------------------------- */
 scene.onBeforeRenderObservable.add(() => {
   const dt = engine.getDeltaTime() / 1000;
 
   /* CLOUD MOTION */
   clouds.position.z += dt * 2;
-  if (clouds.position.z > 300) clouds.position.z = -300;
+  if (clouds.position.z > 600) clouds.position.z = -600;
 
   /* MOVEMENT */
   let moving = false;
@@ -257,38 +439,136 @@ scene.onBeforeRenderObservable.add(() => {
 
   /* JUMP */
   if ((input[" "] || input["space"]) && grounded) {
-    velocityY = 13;
+    velocityY = 14;
     grounded = false;
   }
 
-  // apply gravity every frame
+  // apply gravity
   velocityY += GRAVITY * dt;
   player.position.y += velocityY * dt;
 
-  if (player.position.y <= GROUNDED_Y) {
-    player.position.y = GROUNDED_Y;
-    velocityY = 0;
-    grounded = true;
+  // player's horizontal extents for collision tests
+  const playerRadiusX = 0.95;
+  const playerRadiusZ = 0.7;
+
+  // Simple horizontal blocking for large house walls (prevents walking through them)
+  // Only consider walls that were added to the scene (frontLeft, frontRight, leftWall, rightWall, backWall)
+  // We'll push the player out along the smallest penetration axis if overlapping while vertical ranges overlap.
+  const wallList = [frontLeft, frontRight, leftWall, rightWall, backWall];
+  const px = player.position.x;
+  const pz = player.position.z;
+  const playerMinY = player.position.y - GROUNDED_Y;
+  const playerMaxY = player.position.y + 2.5; // approximate head/top
+
+  const playerMinX = px - playerRadiusX;
+  const playerMaxX = px + playerRadiusX;
+  const playerMinZ = pz - playerRadiusZ;
+  const playerMaxZ = pz + playerRadiusZ;
+
+  for (let i = 0; i < wallList.length; i++) {
+    const w = wallList[i];
+    const bi = w.getBoundingInfo().boundingBox;
+    const min = bi.minimumWorld;
+    const max = bi.maximumWorld;
+
+    // vertical overlap?
+    const vOverlap = !(playerMaxY < min.y || playerMinY > max.y);
+    if (!vOverlap) continue;
+
+    // horizontal overlap tests
+    const overlapX = Math.min(playerMaxX, max.x) - Math.max(playerMinX, min.x);
+    const overlapZ = Math.min(playerMaxZ, max.z) - Math.max(playerMinZ, min.z);
+
+    if (overlapX > 0 && overlapZ > 0) {
+      // compute minimal push-out along X or Z
+      if (overlapX < overlapZ) {
+        // push X out
+        if ((playerMaxX + playerMinX) / 2 > (min.x + max.x) / 2) {
+          // player is on the right side, push to the right
+          player.position.x += overlapX + 0.02;
+        } else {
+          // push to the left
+          player.position.x -= overlapX + 0.02;
+        }
+      } else {
+        // push Z out
+        if ((playerMaxZ + playerMinZ) / 2 > (min.z + max.z) / 2) {
+          player.position.z += overlapZ + 0.02;
+        } else {
+          player.position.z -= overlapZ + 0.02;
+        }
+      }
+    }
   }
 
-  /* WALK ANIMATION (rotate around shoulder/hip pivots) */
+  // recompute player extents after potential push-out
+  const px2 = player.position.x;
+  const pz2 = player.position.z;
+  const playerMinX2 = px2 - playerRadiusX;
+  const playerMaxX2 = px2 + playerRadiusX;
+  const playerMinZ2 = pz2 - playerRadiusZ;
+  const playerMaxZ2 = pz2 + playerRadiusZ;
+
+  // compute player's feet y
+  const playerFeetY = player.position.y - GROUNDED_Y;
+
+  // AABB landing detection for all solid surfaces (we only snap when falling)
+  let landed = false;
+  if (velocityY <= 0) {
+    for (let i = 0; i < solidSurfaces.length; i++) {
+      const s = solidSurfaces[i];
+      const bi = s.getBoundingInfo().boundingBox;
+      const min = bi.minimumWorld;
+      const max = bi.maximumWorld;
+      const topY = max.y;
+
+      // horizontal overlap test between player's XZ AABB and surface's XZ AABB
+      const surfMinX = min.x, surfMaxX = max.x;
+      const surfMinZ = min.z, surfMaxZ = max.z;
+      const overlapX2 = (playerMaxX2 >= surfMinX) && (playerMinX2 <= surfMaxX);
+      const overlapZ2 = (playerMaxZ2 >= surfMinZ) && (playerMinZ2 <= surfMaxZ);
+
+      if (overlapX2 && overlapZ2) {
+        // Only snap if player's feet are at or above the top surface (or just slightly below from last frame)
+        if ((playerFeetY <= topY + 0.25 && prevFeetY >= topY - 1.0) || (playerFeetY < topY && prevFeetY >= topY - 1.0)) {
+          player.position.y = topY + GROUNDED_Y;
+          velocityY = 0;
+          grounded = true;
+          landed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!landed) {
+    // fallback to default ground plane
+    if (player.position.y <= GROUNDED_Y) {
+      player.position.y = GROUNDED_Y;
+      velocityY = 0;
+      grounded = true;
+    } else {
+      grounded = false;
+    }
+  }
+
+  prevFeetY = player.position.y - GROUNDED_Y;
+
+  /* WALK ANIMATION */
   if (moving && grounded) {
     walkTime += dt * 8;
-    // legs: forward/back
     leftLeg.rotation.x = Math.sin(walkTime) * 0.8;
     rightLeg.rotation.x = -Math.sin(walkTime) * 0.8;
-    // arms: opposite of legs
     leftArm.rotation.x = -Math.sin(walkTime) * 0.6;
     rightArm.rotation.x = Math.sin(walkTime) * 0.6;
   } else {
-    // ease back to neutral
     leftLeg.rotation.x *= 0.8;
     rightLeg.rotation.x *= 0.8;
     leftArm.rotation.x *= 0.8;
     rightArm.rotation.x *= 0.8;
   }
 
-  /* JUMP POSE (limbs relative to joint pivots) */
+  /* JUMP POSE */
   if (!grounded) {
     leftLeg.rotation.x = 0;
     rightLeg.rotation.x = 0;
