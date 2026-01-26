@@ -214,7 +214,9 @@ camera.lockedTarget = torso;
 
 /* PHYSICS-like vars */
 let velocityY = 0;
-let grounded = true;
+// give the player gravity so they fall naturally if not supported
+const GRAVITY = -20; // units/s^2 (negative = downward)
+let grounded = false; // start not-force-locked to ground so gravity applies immediately
 
 /* INPUT */
 const input = {};
@@ -255,11 +257,12 @@ scene.onBeforeRenderObservable.add(() => {
 
   /* JUMP */
   if ((input[" "] || input["space"]) && grounded) {
-    velocityY = 8;
+    velocityY = 13;
     grounded = false;
   }
 
-  velocityY -= 20 * dt;
+  // apply gravity every frame
+  velocityY += GRAVITY * dt;
   player.position.y += velocityY * dt;
 
   if (player.position.y <= GROUNDED_Y) {
