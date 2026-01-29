@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Babylon World — Alpha (NPCs match player)</title>
+  <title>Babylon World — Alpha (NPCs match player + health + cars)</title>
   <link rel="icon" type="image/png" href="Ignited fuse with fiery explosion.png">
   <style>
     html, body {
@@ -25,7 +25,10 @@
 <div id="hudHotbar"></div>
 <div id="hint">1: Sword  •  2: Bomb  •  3: Block  •  4: NPC Spawner  •  Left-click to use • Mousewheel to switch</div>
 
+<!-- Babylon + GUI -->
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+
 <script>
 (() => {
   try {
@@ -33,6 +36,9 @@
     const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true });
     const scene = new BABYLON.Scene(engine);
     scene.clearColor = new BABYLON.Color3(0.53, 0.81, 0.92);
+
+    // ---------- GUI (fullscreen) ----------
+    const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
     /* ---------------------------
        CAMERA + LIGHT
@@ -195,6 +201,7 @@
        INPUTS
        --------------------------- */
     const input = {};
+    let nearCar = null; // used for 'E to get in' detection
     scene.onKeyboardObservable.add(kb => {
       const key = (kb.event && (kb.event.code || kb.event.key)) ? (kb.event.code || kb.event.key) : '';
       const keyLower = (kb.event && kb.event.key) ? kb.event.key.toLowerCase() : key;
@@ -207,6 +214,14 @@
         if (key === "Digit4") setActiveIndex(3);
         if (keyLower === "f") attemptUse();
         if (keyLower === "g") attemptUse();
+        if (keyLower === "e") {
+          // Enter/exit car if near
+          if (playerCar) {
+            exitCar();
+          } else if (nearCar) {
+            enterCar(nearCar);
+          }
+        }
       } else if (kb.type === BABYLON.KeyboardEventTypes.KEYUP) {
         if (key === "Space" || keyLower === " ") input[" "] = false;
         input[keyLower] = false;
@@ -345,6 +360,99 @@
     function shortestAngleDelta(from, to) { return wrapAngle(to - from); }
     const NPC_TURN_SPEED = 6.0; // radians/sec - tweak to taste
 
+    // ---------- Health UI helpers ----------
+    function createNpcHealthBar(n) {
+      if (!n) return;
+      const w = 64;
+      const bg = new BABYLON.GUI.Rectangle();
+      bg.width = w + "px";
+      bg.height = "8px";
+      bg.cornerRadius = 4;
+      bg.color = "black";
+      bg.thickness = 1;
+      bg.background = "rgba(0,0,0,0.6)";
+      bg.isHitTestVisible = false;
+
+      const fill = new BABYLON.GUI.Rectangle();
+      fill.width = (w) + "px";
+      fill.height = "100%";
+      fill.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+      fill.cornerRadius = 3;
+      fill.isHitTestVisible = false;
+      fill.paddingLeft = "0px";
+      fill.background = "green";
+
+      bg.addControl(fill);
+      ui.addControl(bg);
+      n.healthBar = { bg, fill, width: w };
+    }
+
+    function updateNpcHealthBar(n) {
+      if (!n || !n.healthBar || !n.torso) return;
+      const headWorldPos = n.torso.getAbsolutePosition().add(new BABYLON.Vector3(0, 1.5, 0));
+      const proj = BABYLON.Vector3.Project(headWorldPos, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
+      if (!isFinite(proj.x) || !isFinite(proj.y)) {
+        n.healthBar.bg.isVisible = false;
+        return;
+      }
+      n.healthBar.bg.isVisible = true;
+      n.healthBar.bg.left = proj.x - engine.getRenderWidth()/2 + "px";
+      n.healthBar.bg.top  = proj.y - engine.getRenderHeight()/2 - 30 + "px";
+      const pct = Math.max(0, Math.min(1, (n.health || n.maxHealth) / (n.maxHealth || 100)));
+      const px = Math.max(0, Math.floor(n.healthBar.width * pct));
+      n.healthBar.fill.width = px + "px";
+      // color transition green -> yellow -> red
+      if (pct > 0.6) n.healthBar.fill.background = "green";
+      else if (pct > 0.25) n.healthBar.fill.background = "yellow";
+      else n.healthBar.fill.background = "red";
+    }
+
+    // ---------- NPC damage / ragdoll / despawn ----------
+    function damageNpc(n, dmg) {
+      if (!n || n.ragdoll) return;
+      if (typeof n.health !== "number") n.health = n.maxHealth || 100;
+      n.health -= dmg;
+      if (n.health <= 0) {
+        n.health = 0;
+        // go ragdoll instead of immediate removal
+        killNpc(n);
+      }
+    }
+
+    function killNpc(n) {
+      if (!n || n.ragdoll) return;
+      n.ragdoll = true;
+      n.state = "dead";
+      n.dest = null;
+      n.ragdollDeathTime = Date.now();
+      if (n.velocity && typeof n.velocity.copyFrom === "function") n.velocity.copyFrom(BABYLON.Vector3.Zero());
+      // upward toss & random horizontal knockback
+      n.velocityY = 6 + Math.random()*5;
+      const dir = new BABYLON.Vector3(Math.random()-0.5, 0, Math.random()-0.5);
+      dir.normalize();
+      n.ragdollVel = dir.scale(8 + Math.random()*6);
+      n.ragdollAng = {
+        la: (Math.random()-0.5)*8,
+        ra: (Math.random()-0.5)*8,
+        ll: (Math.random()-0.5)*8,
+        rl: (Math.random()-0.5)*8
+      };
+      // keep health bar visible until despawn; optionally fade out later
+    }
+
+    function disposeNpc(n) {
+      try {
+        if (n.healthBar) {
+          try { ui.removeControl(n.healthBar.bg); } catch(e) {}
+          n.healthBar = null;
+        }
+        n.root.getChildren().forEach(c => { try { c.dispose(); } catch(e){} });
+        n.root.dispose();
+      } catch(e){}
+      const idx = npcs.indexOf(n);
+      if (idx >= 0) npcs.splice(idx, 1);
+    }
+
     // blocks placed
     function spawnBlockAt(pos, size=1.4){
       const box = BABYLON.MeshBuilder.CreateBox(`placed_block_${Date.now()}`, { width:size, depth:size, height:size }, scene);
@@ -399,6 +507,7 @@
       // crucial: use same ground half-height value as player (GROUNDED_Y)
       const npc = {
         root,
+        torso: t,
         speed: 15.0, // MATCH PLAYER FORWARD SPEED (player uses 15 for forward translate)
         dest: null,
         velocity: new BABYLON.Vector3(0,0,0),
@@ -406,7 +515,27 @@
         grounded: false,
         groundOffset: GROUNDED_Y, // EXACT same snap as player
         limbs: { la, ra, ll, rl },
+
+        // --- NPC state fields (added) ---
+        state: "move",
+        stateTimer: 0,
         walkTime: Math.random()*10,
+        reached: false,
+
+        // health
+        health: 100,
+        maxHealth: 100,
+
+        // --- ragdoll fields (added) ---
+        ragdoll: false,
+        ragdollVel: new BABYLON.Vector3(0,0,0),
+        ragdollAng: {
+          la: (Math.random()-0.5)*6,
+          ra: (Math.random()-0.5)*6,
+          ll: (Math.random()-0.5)*6,
+          rl: (Math.random()-0.5)*6
+        },
+
         turnSpeed: NPC_TURN_SPEED
       };
 
@@ -420,6 +549,8 @@
       } else {
         root.position.y = (root.position.y || 0) + npc.groundOffset;
       }
+
+      createNpcHealthBar(npc);
 
       npcs.push(npc);
       return npc;
@@ -571,10 +702,18 @@
         }
       });
 
+      // damage NPCs around blast (changed from instant dispose to damage)
       for (let i = npcs.length - 1; i >= 0; i--) {
         const n = npcs[i]; const d = BABYLON.Vector3.Distance(n.root.position, pos);
-        if (d <= Math.max(radius, 1.0)) { if (typeof removeNpc === "function") removeNpc(n); else { try{ n.root.getChildren().forEach(ch => ch.dispose()); n.root.dispose(); }catch(e){}; npcs.splice(i,1); } }
-        else if (d < radius * 1.8) { const dir = n.root.position.subtract(pos).normalize(); n.velocity = (n.velocity || new BABYLON.Vector3(0,0,0)).add(dir.scale(6 * (1 - d / (radius * 1.8)))); n.velocityY = (n.velocityY || 0) + 4 * (1 - d / (radius * 1.8)); }
+        if (d <= radius * 1.8) {
+          const pct = 1 - Math.min(1, d / (radius * 1.8));
+          const dmg = Math.round(30 + pct * 120); // explosion does 30..150 depending on proximity
+          damageNpc(n, dmg);
+          // knockback for ragdoll or for alive NPCs velocity
+          const dir = n.root.position.subtract(pos).normalize();
+          n.velocity = (n.velocity || new BABYLON.Vector3(0,0,0)).add(dir.scale(6 * pct));
+          n.velocityY = (n.velocityY || 0) + 4 * pct;
+        }
       }
     }
 
@@ -594,7 +733,18 @@
       const forward = playerForward();
       for (let i = npcs.length - 1; i >= 0; i--) {
         const n = npcs[i]; const to = n.root.position.subtract(player.position); const dist = to.length();
-        if (dist < 3.0) { const dNorm = to.normalize(); const dot = BABYLON.Vector3.Dot(dNorm, forward); if (dot > 0.15) removeNpc(n); }
+        if (dist < 3.0) {
+          const dNorm = to.normalize();
+          const dot = BABYLON.Vector3.Dot(dNorm, forward);
+          if (dot > 0.15) {
+            // apply damage, not instant kill
+            damageNpc(n, 40); // sword deals 40
+            // small knockback
+            const kb = n.root.position.subtract(player.position).normalize().scale(3);
+            n.velocity = (n.velocity || new BABYLON.Vector3(0,0,0)).add(kb);
+            n.velocityY = 3;
+          }
+        }
       }
     }
 
@@ -603,6 +753,113 @@
        --------------------------- */
     function updateHeldItem() { const it = inventory[activeIndex]; sword.setEnabled(it && it.id === "sword"); }
     updateHeldItem();
+
+    /* ---------------------------
+       CARS: simple drivable vehicles
+       --------------------------- */
+    const cars = [];
+    let playerCar = null; // reference to car object when player is driving
+    const CAR_ENTER_DISTANCE = 3.5;
+
+    function createCarAt(pos, color = new BABYLON.Color3(0.8,0.1,0.1)) {
+      const root = new BABYLON.TransformNode(`car_root_${Date.now()}`, scene);
+      root.position = pos.clone();
+
+      const body = BABYLON.MeshBuilder.CreateBox(`car_body_${Date.now()}`, { width:6, depth:10, height:10 }, scene);
+      body.parent = root;
+      body.position.y = 0.6;
+      const mat = new BABYLON.StandardMaterial("carMat"+Date.now(), scene);
+      mat.diffuseColor = color;
+      body.material = mat;
+
+      // simple seat marker (local seat position)
+      const seatLocal = new BABYLON.Vector3(0, 0.95, 0.6); // above car body
+      const seatWorld = () => body.getAbsolutePosition().add(BABYLON.Vector3.TransformCoordinates(seatLocal, body.getWorldMatrix().getRotationMatrix()));
+
+      // seat prompt GUI
+      const prompt = new BABYLON.GUI.Rectangle();
+      prompt.width = "110px";
+      prompt.height = "28px";
+      prompt.cornerRadius = 6;
+      prompt.thickness = 1;
+      prompt.background = "rgba(0,0,0,0.6)";
+      prompt.color = "white";
+      prompt.isHitTestVisible = false;
+      const label = new BABYLON.GUI.TextBlock();
+      label.text = "E to get in";
+      label.fontSize = 14;
+      prompt.addControl(label);
+      prompt.isVisible = false;
+      ui.addControl(prompt);
+
+      const car = {
+        root, body, seatLocal, prompt, promptLabel: label,
+        speed: 0,
+        maxSpeed: 1000, // higher than player
+        accel: 300,
+        steer: 0,
+        yaw: 0,
+        braking: 0,
+        occupant: null,
+        radius: 6
+      };
+
+      cars.push(car);
+      return car;
+    }
+
+    // spawn a few cars
+    createCarAt(new BABYLON.Vector3(10,0,-20), new BABYLON.Color3(0.2,0.7,1.0));
+    createCarAt(new BABYLON.Vector3(-20,0,-40), new BABYLON.Color3(1.0,0.6,0.1));
+
+    function enterCar(car) {
+      if (!car || playerCar) return;
+      playerCar = car;
+      car.occupant = player;
+      // hide player meshes
+      player.getChildMeshes().forEach(m => m.setEnabled(false));
+      // move player transform to car for consistency
+      player.position.copyFrom(car.root.position.add(new BABYLON.Vector3(0,2,0)));
+      // camera now follows car's body
+      camera.lockedTarget = car.body;
+      camera.radius = 12;
+      camera.heightOffset = 4;
+    }
+
+    function exitCar() {
+      if (!playerCar) return;
+      // drop player to seat position
+      const car = playerCar;
+      player.getChildMeshes().forEach(m => m.setEnabled(true));
+      player.position.copyFrom(car.root.position.add(new BABYLON.Vector3(0, car.body.position.y + 1.0, -1.0)));
+      camera.lockedTarget = torso;
+      camera.radius = 24;
+      camera.heightOffset = 8;
+      car.occupant = null;
+      playerCar = null;
+    }
+
+    // check car collisions with NPCs
+    function checkCarNpcCollisions(car, dt) {
+      if (!car) return;
+      const carPos = car.root.position.add(car.body.position);
+      for (let i = npcs.length - 1; i >= 0; i--) {
+        const n = npcs[i];
+        const d = BABYLON.Vector3.Distance(carPos, n.root.position);
+        const collideDist = car.radius + 1.0;
+        if (d < collideDist) {
+          // hit: apply damage proportional to speed
+          const damage = Math.round(Math.abs(car.speed) * 0.9) + 30;
+          damageNpc(n, damage);
+          // knockback NPC
+          const dir = n.root.position.subtract(carPos).normalize();
+          n.velocity = (n.velocity || new BABYLON.Vector3(0,0,0)).add(dir.scale(12));
+          n.velocityY = 6;
+          // slow car a bit on impact
+          car.speed *= 0.6;
+        }
+      }
+    }
 
     /* ---------------------------
        RUNTIME: movement, bombs, sword, NPC AI
@@ -615,6 +872,37 @@
       let moving = false; if (input["w"] || input["keyw"]) { player.translate(BABYLON.Axis.Z, 15 * dt, BABYLON.Space.LOCAL); moving = true; }
       if (input["s"] || input["keys"]) { player.translate(BABYLON.Axis.Z, -10 * dt, BABYLON.Space.LOCAL); moving = true; }
       if (input["a"] || input["keya"]) player.rotation.y -= 2.5 * dt; if (input["d"] || input["keyd"]) player.rotation.y += 2.5 * dt;
+
+      // If driving a car, override player movement with car controls
+      if (playerCar) {
+        // driving controls: W accelerate, S brake/reverse, A/D steer
+        const car = playerCar;
+        const forwardInput = (input["w"] || input["keyw"]) ? 1 : (input["s"] || input["keys"]) ? -1 : 0;
+        const steerInput = (input["a"] || input["keya"]) ? -1 : (input["d"] || input["keyd"]) ? 1 : 0;
+
+        // accelerate / brake
+        if (forwardInput > 0) car.speed = Math.min(car.maxSpeed, car.speed + car.accel * dt);
+        else if (forwardInput < 0) car.speed = Math.max(-car.maxSpeed*0.4, car.speed - car.accel * dt);
+        else car.speed = car.speed * Math.max(0, 1 - dt*2.5);
+
+        // steering depends on speed
+        car.yaw += steerInput * (Math.max(0.6, Math.abs(car.speed) / car.maxSpeed)) * dt * 2.4;
+        car.root.rotation.y = car.yaw;
+
+        // move forward in local Z
+        const forwardVec = new BABYLON.Vector3(Math.sin(car.root.rotation.y), 0, Math.cos(car.root.rotation.y));
+        car.root.position.addInPlace(forwardVec.scale(car.speed * dt * 0.1)); // scale factor for tuning
+
+        // update body absolute position (body parented to root so fine)
+        // simulate minor friction
+        car.speed *= Math.max(0, 1 - dt*0.2);
+
+        // check collisions against NPCs
+        checkCarNpcCollisions(car, dt);
+
+        // update seat prompt (hide while driving)
+        if (car.prompt) car.prompt.isVisible = false;
+      }
 
       // JUMP
       if ((input[" "] || input["space"]) && grounded) { velocityY = 14; grounded = false; }
@@ -674,11 +962,57 @@
       for (let i = npcs.length - 1; i >= 0; i--) {
         const n = npcs[i];
 
+        // update health bar position each frame
+        updateNpcHealthBar(n);
+
         // safety init
         if (typeof n.velocityY !== 'number' || !isFinite(n.velocityY)) n.velocityY = 0;
         if (!n.groundOffset || !isFinite(n.groundOffset)) n.groundOffset = GROUNDED_Y;
         if (!n.velocity || !(n.velocity instanceof BABYLON.Vector3)) n.velocity = new BABYLON.Vector3(0,0,0);
         if (!n.limbs) n.limbs = {};
+
+        // -------- RAGDOLL HANDLING: if ragdoll, skip AI and simulate flop --------
+        if (n.ragdoll) {
+          // gravity
+          n.ragdollVel.y += GRAVITY * dt;
+          // horizontal + vertical movement
+          n.root.position.addInPlace(n.ragdollVel.scale(dt));
+          n.root.position.y += n.velocityY * dt;
+          // damp ragdoll velocity a bit
+          n.ragdollVel.scaleInPlace(0.96);
+          n.velocityY += GRAVITY * dt;
+          // limb flop
+          const limbs = n.limbs || {};
+          if (limbs.la) limbs.la.rotation.x += n.ragdollAng.la * dt;
+          if (limbs.ra) limbs.ra.rotation.x += n.ragdollAng.ra * dt;
+          if (limbs.ll) limbs.ll.rotation.x += n.ragdollAng.ll * dt;
+          if (limbs.rl) limbs.rl.rotation.x += n.ragdollAng.rl * dt;
+
+          // raycast down and settle on ground
+          const downFromR = n.root.position.add(new BABYLON.Vector3(0, 10, 0));
+          const rayR = new BABYLON.Ray(downFromR, new BABYLON.Vector3(0, -1, 0), 30);
+          const hitR = scene.pickWithRay(rayR, (m) => m === ground || solidSurfaces.indexOf(m) !== -1);
+          if (hitR && hitR.hit && hitR.pickedPoint && isFinite(hitR.pickedPoint.y)) {
+            const settleY = hitR.pickedPoint.y + n.groundOffset * 0.6;
+            if (n.root.position.y <= settleY) {
+              n.root.position.y = settleY;
+              n.ragdollVel.y = 0;
+              // slow limb motion
+              n.ragdollAng.la *= 0.96; n.ragdollAng.ra *= 0.96; n.ragdollAng.ll *= 0.96; n.ragdollAng.rl *= 0.96;
+              // slowly damp horizontal movement
+              n.ragdollVel.scaleInPlace(0.7);
+            }
+          }
+
+          // despawn ragdoll after 60 seconds
+          if (n.ragdollDeathTime && (Date.now() - n.ragdollDeathTime) > 60000) {
+            disposeNpc(n);
+            continue;
+          }
+
+          // skip the rest of AI/walk logic for ragdolled NPCs
+          continue;
+        }
 
         // integrate vertical physics
         n.velocityY += GRAVITY * dt;
@@ -784,13 +1118,47 @@
           // ignore disposed meshes
         }
       }
+
+      // Update car prompts and seat detection
+      nearCar = null;
+      for (let i=0;i<cars.length;i++){
+        const car = cars[i];
+        // compute seat world pos from body transform:
+        const seatWorld = car.body.getAbsolutePosition().add(BABYLON.Vector3.TransformCoordinates(car.seatLocal, car.body.getWorldMatrix()));
+        // project seat to screen
+        const proj = BABYLON.Vector3.Project(seatWorld, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
+        if (car.prompt && isFinite(proj.x) && isFinite(proj.y)) {
+          car.prompt.isVisible = true;
+          car.prompt.left = proj.x - engine.getRenderWidth()/2 + "px";
+          car.prompt.top = proj.y - engine.getRenderHeight()/2 + "px";
+        } else if (car.prompt) {
+          car.prompt.isVisible = false;
+        }
+
+        // check near
+        const d = BABYLON.Vector3.Distance(player.position, car.root.position.add(car.body.position));
+        if (d < CAR_ENTER_DISTANCE && !playerCar && !car.occupant) {
+          nearCar = car;
+          if (car.prompt) car.prompt.isVisible = true;
+          // small visual emphasis
+          if (car.prompt) car.prompt.background = "rgba(0,0,0,0.75)";
+        } else {
+          if (car.prompt && !car.occupant) car.prompt.isVisible = false;
+        }
+      }
+
+      // If player is in car, update its prompt off and handle collisions (already in car section)
+      if (playerCar) {
+        checkCarNpcCollisions(playerCar, dt);
+      }
+
     });
 
     /* ---------------------------
        UI helpers / cleanup / start loop
        --------------------------- */
     function rebuildHotbarCounts() { buildHotbar(); }
-    window.addEventListener("beforeunload", () => { try { hudHotbar.remove(); } catch(e){}; npcs.forEach(n => { try { n.root.getChildren().forEach(c=>c.dispose()); n.root.dispose(); } catch(e){} }); bombs.forEach(b => { try{ b.dispose(); } catch(e){} }); });
+    window.addEventListener("beforeunload", () => { try { hudHotbar.remove(); } catch(e){}; npcs.forEach(n => { try { n.root.getChildren().forEach(c=>c.dispose()); n.root.dispose(); } catch(e){} }); bombs.forEach(b => { try{ b.dispose(); } catch(e){} }); cars.forEach(c => { try{ if (c.prompt) ui.removeControl(c.prompt); c.root.getChildren().forEach(cc=>cc.dispose()); c.root.dispose(); }catch(e){} });});
     engine.runRenderLoop(() => scene.render());
     window.addEventListener("resize", () => engine.resize());
 
