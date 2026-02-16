@@ -2,33 +2,31 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Babylon World — Alpha (NPCs match player + health + cars)</title>
+  <title>Babylon World — Babylon City</title>
   <link rel="icon" type="image/png" href="Ignited fuse with fiery explosion.png">
   <style>
-    html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      overflow: hidden;
-      background: #87CEEB;
-      font-family: Inter, system-ui, Arial, sans-serif;
-    }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #87CEEB; font-family: Inter, system-ui, Arial, sans-serif; }
     #renderCanvas { width:100%; height:100%; touch-action:none; display:block; }
     #hudHotbar { position: absolute; bottom: 22px; right: 22px; display:flex; gap:8px; z-index:9999; user-select:none; }
     .hotbar-slot { width:64px; height:48px; border-radius:8px; border:1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.25); color: white; display:flex; align-items:center; justify-content:center; flex-direction: column; font-size:18px; cursor:pointer; }
     .hotbar-slot.active { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.22); }
     #hint { position:absolute; left:20px; bottom:22px; color:white; z-index:9999; background: rgba(0,0,0,0.22); padding:8px 10px; border-radius:8px; font-family:monospace; font-size:13px; }
+    #crosshair { position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%); width: 32px; height: 32px; pointer-events: none; z-index: 9998; display: none; }
+    .crosshair-line { position: absolute; background: rgba(255, 100, 100, 0.7); }
+    .crosshair-h { width: 12px; height: 2px; top: 50%; left: 50%; transform: translateX(-50%); margin-top: -1px; }
+    .crosshair-v { width: 2px; height: 12px; left: 50%; top: 50%; transform: translateY(-50%); margin-left: -1px; }
   </style>
 </head>
 <body>
 <canvas id="renderCanvas"></canvas>
 <div id="hudHotbar"></div>
-<div id="hint">1: Sword  •  2: Bomb  •  3: Block  •  4: NPC Spawner  •  Left-click to use • Mousewheel to switch</div>
-
-<!-- Babylon + GUI -->
+<div id="crosshair">
+  <div class="crosshair-line crosshair-h"></div>
+  <div class="crosshair-line crosshair-v"></div>
+</div>
+<div id="hint">1: Sword  •  2: Bomb  •  3: Block  •  4: NPC Spawner  •  5: Gun  •  Left-click to use • Mousewheel to switch</div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
-
 <script>
 (() => {
   try {
@@ -36,13 +34,8 @@
     const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true });
     const scene = new BABYLON.Scene(engine);
     scene.clearColor = new BABYLON.Color3(0.53, 0.81, 0.92);
-
-    // ---------- GUI (fullscreen) ----------
     const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
-    /* ---------------------------
-       CAMERA + LIGHT
-       --------------------------- */
     const camera = new BABYLON.FollowCamera("cam", new BABYLON.Vector3(0, 12, -30), scene);
     camera.radius = 24;
     camera.heightOffset = 8;
@@ -54,10 +47,7 @@
     const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0,1,0), scene);
     hemi.intensity = 0.35;
 
-    /* ---------------------------
-       SKY + CLOUDS
-       --------------------------- */
-    const sky = BABYLON.MeshBuilder.CreateSphere("sky", { diameter: 1000 }, scene);
+    const sky = BABYLON.MeshBuilder.CreateSphere("sky", { diameter: 2000 }, scene);
     const skyMat = new BABYLON.StandardMaterial("skyMat", scene);
     skyMat.backFaceCulling = false;
     skyMat.emissiveColor = new BABYLON.Color3(0.53, 0.81, 0.92);
@@ -78,66 +68,53 @@
     cloudMat.diffuseColor = BABYLON.Color3.White();
     cloudMat.backFaceCulling = false;
     cloudMat.disableLighting = true;
-    const clouds = BABYLON.MeshBuilder.CreatePlane("clouds", { size: 600 }, scene);
+    const clouds = BABYLON.MeshBuilder.CreatePlane("clouds", { size: 1200 }, scene);
     clouds.rotation.x = Math.PI/2;
-    clouds.position.y = 220;
+    clouds.position.y = 400;
     clouds.material = cloudMat;
 
-    /* ---------------------------
-       GROUND + GRASS TEXTURE
-       --------------------------- */
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 1000, height: 1000 }, scene);
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 2000, height: 2000 }, scene);
     const TILE_SIZE = 512;
-    const tileTex = new BABYLON.DynamicTexture("grassTile", { width: TILE_SIZE, height: TILE_SIZE }, scene, false);
+    const tileTex = new BABYLON.DynamicTexture("asphaltTile", { width: TILE_SIZE, height: TILE_SIZE }, scene, false);
     const tctx = tileTex.getContext();
     const tw = TILE_SIZE, th = TILE_SIZE;
-    const bright = "#39ff33";
-    tctx.fillStyle = bright;
+    tctx.fillStyle = "#2a2a2a";
     tctx.fillRect(0,0,tw,th);
-    const gridCount = 4;
+    const gridCount = 8;
     const cellW = Math.floor(tw / gridCount);
     const cellH = Math.floor(th / gridCount);
     const inset = 4;
     for (let gx=0; gx<gridCount; gx++){
       for (let gy=0; gy<gridCount; gy++){
-        if ((gx+gy)%2===0 || Math.random() < 0.25) {
-          const gVal = 192 + Math.floor(Math.random()*24);
-          const rVal = 40 + Math.floor(Math.random()*10);
-          const bVal = 36 + Math.floor(Math.random()*10);
-          tctx.fillStyle = `rgb(${rVal},${gVal},${bVal})`;
-          const x = gx*cellW + inset;
-          const y = gy*cellH + inset;
-          tctx.fillRect(x,y,cellW-inset*2,cellH-inset*2);
-          const cx = x + (cellW-inset*2)/2;
-          const cy = y + (cellH-inset*2)/2;
-          const rad = Math.max(cellW,cellH)*0.6;
-          const grd = tctx.createRadialGradient(cx,cy,1,cx,cy,rad);
-          grd.addColorStop(0,'rgba(0,0,0,0.0)');
-          grd.addColorStop(1,'rgba(0,0,0,0.06)');
-          tctx.fillStyle = grd;
-          tctx.fillRect(x,y,cellW-inset*2,cellH-inset*2);
-        }
+        const gVal = 35 + Math.floor(Math.random()*15);
+        const rVal = 30 + Math.floor(Math.random()*10);
+        const bVal = 30 + Math.floor(Math.random()*10);
+        tctx.fillStyle = `rgb(${rVal},${gVal},${bVal})`;
+        const x = gx*cellW + inset;
+        const y = gy*cellH + inset;
+        tctx.fillRect(x,y,cellW-inset*2,cellH-inset*2);
       }
     }
-    const img = tctx.getImageData(0,0,tw,th);
-    for (let i=0;i<img.data.length;i+=4) {
-      const n = (Math.random()-0.5)*8;
-      img.data[i] = Math.max(0, Math.min(255, img.data[i] + n));
-      img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + n));
-      img.data[i+2] = Math.max(0, Math.min(255, img.data[i+2] + n));
+    tctx.strokeStyle = "rgba(255,255,200,0.4)";
+    tctx.lineWidth = 3;
+    for (let i = 0; i < 8; i += 2) {
+      tctx.beginPath();
+      tctx.moveTo(i * cellW, 0);
+      tctx.lineTo(i * cellW, th);
+      tctx.stroke();
+      tctx.beginPath();
+      tctx.moveTo(0, i * cellH);
+      tctx.lineTo(tw, i * cellH);
+      tctx.stroke();
     }
-    tctx.putImageData(img,0,0);
     tileTex.update();
     tileTex.wrapU = tileTex.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
-    const grassMat = new BABYLON.StandardMaterial("grass", scene);
-    grassMat.diffuseTexture = tileTex;
-    grassMat.diffuseTexture.uScale = grassMat.diffuseTexture.vScale = 20;
-    grassMat.specularColor = new BABYLON.Color3(0,0,0);
-    ground.material = grassMat;
+    const asphaltMat = new BABYLON.StandardMaterial("asphalt", scene);
+    asphaltMat.diffuseTexture = tileTex;
+    asphaltMat.diffuseTexture.uScale = asphaltMat.diffuseTexture.vScale = 4;
+    asphaltMat.specularColor = new BABYLON.Color3(0.1,0.1,0.1);
+    ground.material = asphaltMat;
 
-    /* ---------------------------
-       particle texture (simple dynamic circular texture)
-       --------------------------- */
     const particleTex = new BABYLON.DynamicTexture('particleTex', 64, scene, false);
     const pctx = particleTex.getContext();
     pctx.clearRect(0,0,64,64);
@@ -149,11 +126,8 @@
     pctx.fillRect(0,0,64,64);
     particleTex.update();
 
-    /* ---------------------------
-       PLAYER (R6-like)
-       --------------------------- */
     const player = new BABYLON.TransformNode("player", scene);
-    const GROUNDED_Y = 3; // player's ground half-height used for both player & NPCs
+    const GROUNDED_Y = 3;
     player.position.y = GROUNDED_Y;
 
     const torso = BABYLON.MeshBuilder.CreateBox("torso", { width:2, height:2, depth:1 }, scene);
@@ -164,7 +138,7 @@
     leftArm.setPivotPoint(new BABYLON.Vector3(0,1,0));
     leftArm.parent = torso; leftArm.position.set(-1.4,0,0);
 
-    const rightArm = leftArm.clone("rArm"); // cloned to match the same pivot/size
+    const rightArm = leftArm.clone("rArm");
     rightArm.setPivotPoint(new BABYLON.Vector3(0,1,0)); rightArm.parent = torso; rightArm.position.set(1.4,0,0);
 
     const leftLeg = BABYLON.MeshBuilder.CreateBox("lLeg", { height:2, width:0.9, depth:0.9 }, scene);
@@ -176,32 +150,29 @@
     [torso, head, leftArm, rightArm, leftLeg, rightLeg].forEach(m=>m.material = bodyMat);
     camera.lockedTarget = torso;
 
-    /* ---------------------------
-       POINTER LOCK + MOUSE LOOK
-       --------------------------- */
     canvas.addEventListener("click", () => {
       canvas.requestPointerLock = canvas.requestPointerLock || canvas.msRequestPointerLock || canvas.mozRequestPointerLock || canvas.webkitRequestPointerLock;
       if (canvas.requestPointerLock) canvas.requestPointerLock();
     });
+    
     let mouseSensitivity = 0.0025;
+    let cameraVelocityX = 0;
+    let cameraVelocityY = 0;
+    
     scene.onPointerObservable.add((pointerInfo) => {
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
         if (document.pointerLockElement === canvas) {
           const evt = pointerInfo.event;
           const dx = evt.movementX || 0;
           const dy = evt.movementY || 0;
-          player.rotation.y += dx * mouseSensitivity;
-          camera.heightOffset -= dy * 0.05;
-          camera.heightOffset = BABYLON.Scalar.Clamp(camera.heightOffset, 4, 14);
+          cameraVelocityX = dx * mouseSensitivity;
+          cameraVelocityY = -dy * 0.05;
         }
       }
     });
 
-    /* ---------------------------
-       INPUTS
-       --------------------------- */
     const input = {};
-    let nearCar = null; // used for 'E to get in' detection
+    let nearCar = null;
     scene.onKeyboardObservable.add(kb => {
       const key = (kb.event && (kb.event.code || kb.event.key)) ? (kb.event.code || kb.event.key) : '';
       const keyLower = (kb.event && kb.event.key) ? kb.event.key.toLowerCase() : key;
@@ -212,15 +183,11 @@
         if (key === "Digit2") setActiveIndex(1);
         if (key === "Digit3") setActiveIndex(2);
         if (key === "Digit4") setActiveIndex(3);
-        if (keyLower === "f") attemptUse();
-        if (keyLower === "g") attemptUse();
+        if (key === "Digit5") setActiveIndex(4);
+        if (keyLower === "f" || keyLower === "g") attemptUse();
         if (keyLower === "e") {
-          // Enter/exit car if near
-          if (playerCar) {
-            exitCar();
-          } else if (nearCar) {
-            enterCar(nearCar);
-          }
+          if (playerCar) { exitCar(); }
+          else if (nearCar) { enterCar(nearCar); }
         }
       } else if (kb.type === BABYLON.KeyboardEventTypes.KEYUP) {
         if (key === "Space" || keyLower === " ") input[" "] = false;
@@ -234,89 +201,80 @@
       else setActiveIndex((activeIndex - 1 + inventory.length) % inventory.length);
     }, { passive:false });
 
-    /* ---------------------------
-       WORLD: HOUSE, PLATFORMS
-       --------------------------- */
-    const houseRoot = new BABYLON.TransformNode("houseRoot", scene);
-    const wallMat = new BABYLON.StandardMaterial("wallMat", scene); wallMat.diffuseColor = new BABYLON.Color3(0.95,0.9,0.8);
-    const roofMat = new BABYLON.StandardMaterial("roofMat", scene); roofMat.diffuseColor = new BABYLON.Color3(0.55,0.12,0.12);
-    const doorMat = new BABYLON.StandardMaterial("doorMat", scene); doorMat.diffuseColor = new BABYLON.Color3(0.4,0.2,0.1);
+    const buildings = [];
+    const buildingMat1 = new BABYLON.StandardMaterial("buildMat1", scene); buildingMat1.diffuseColor = new BABYLON.Color3(0.7,0.7,0.75);
+    const buildingMat2 = new BABYLON.StandardMaterial("buildMat2", scene); buildingMat2.diffuseColor = new BABYLON.Color3(0.6,0.65,0.7);
+    const buildingMat3 = new BABYLON.StandardMaterial("buildMat3", scene); buildingMat3.diffuseColor = new BABYLON.Color3(0.8,0.75,0.7);
+    const skyscraperMat = new BABYLON.StandardMaterial("skyscraperMat", scene); skyscraperMat.diffuseColor = new BABYLON.Color3(0.3,0.3,0.35);
+    const windowMat = new BABYLON.StandardMaterial("windowMat", scene); windowMat.diffuseColor = new BABYLON.Color3(0.2,0.5,0.9); windowMat.alpha = 0.6;
 
-    const houseWidth = 40, houseDepth = 28, wallHeight = 10;
-    const houseX = 60, houseZ = -30, houseY = 0.25;
-    const houseFloor = BABYLON.MeshBuilder.CreateBox("houseFloor", { width:houseWidth, depth:houseDepth, height:0.6 }, scene);
-    houseFloor.position.set(houseX, houseY - 0.3, houseZ); houseFloor.material = wallMat; houseFloor.parent = houseRoot;
+    const gridSize = 3;
+    const blockSpacing = 200;
+    const buildingVariety = [buildingMat1, buildingMat2, buildingMat3];
 
-    const thickness = 0.5, doorWidth=4.0, halfWallWidth=(houseWidth-doorWidth)/2;
-    const frontLeft = BABYLON.MeshBuilder.CreateBox("houseWallFrontLeft", { width:halfWallWidth, height:wallHeight, depth:thickness }, scene);
-    frontLeft.position.set(houseX - (doorWidth + halfWallWidth)/2, wallHeight/2 + houseY, houseZ - houseDepth/2 + thickness/2); frontLeft.material = wallMat; frontLeft.parent = houseRoot;
-    const frontRight = BABYLON.MeshBuilder.CreateBox("houseWallFrontRight", { width:halfWallWidth, height:wallHeight, depth:thickness }, scene);
-    frontRight.position.set(houseX + (doorWidth + halfWallWidth)/2, wallHeight/2 + houseY, houseZ - houseDepth/2 + thickness/2); frontRight.material = wallMat; frontRight.parent = houseRoot;
-    const backWall = BABYLON.MeshBuilder.CreateBox("houseWallBack", { width:houseWidth, height:wallHeight, depth:thickness }, scene);
-    backWall.position.set(houseX, wallHeight/2 + houseY, houseZ + houseDepth/2 - thickness/2); backWall.material = wallMat; backWall.parent = houseRoot;
-    const leftWall = BABYLON.MeshBuilder.CreateBox("houseWallLeft", { width:thickness, height:wallHeight, depth:houseDepth }, scene);
-    leftWall.position.set(houseX - houseWidth/2 + thickness/2, wallHeight/2 + houseY, houseZ); leftWall.material = wallMat; leftWall.parent = houseRoot;
-    const rightWall = leftWall.clone("houseWallRight"); rightWall.position.set(houseX + houseWidth/2 - thickness/2, wallHeight/2 + houseY, houseZ); rightWall.parent = houseRoot;
+    for (let bx = -gridSize; bx <= gridSize; bx++) {
+      for (let bz = -gridSize; bz <= gridSize; bz++) {
+        const baseX = bx * blockSpacing;
+        const baseZ = bz * blockSpacing;
+        if (Math.abs(bx) <= 1 && Math.abs(bz) <= 1) continue;
+        
+        const bWidth = 60 + Math.random() * 40;
+        const bDepth = 60 + Math.random() * 40;
+        const bHeight = 80 + Math.floor(Math.random() * 8) * 20;
+        
+        const building = BABYLON.MeshBuilder.CreateBox(`building_${bx}_${bz}`, { width: bWidth, depth: bDepth, height: bHeight }, scene);
+        building.position.set(baseX, bHeight / 2, baseZ);
+        building.material = buildingVariety[Math.floor(Math.random() * buildingVariety.length)];
+        buildings.push(building);
 
-    const doorFrame = BABYLON.MeshBuilder.CreatePlane("doorFrame", { width:doorWidth, height:3.2 }, scene);
-    doorFrame.position.set(houseX, 1.6 + houseY, houseZ - houseDepth/2 + 0.02); doorFrame.rotation.y = Math.PI; doorFrame.material = doorMat; doorFrame.parent = houseRoot;
-
-    const roof = BABYLON.MeshBuilder.CreateBox("houseRoof", { width: houseWidth * 1.1, depth: houseDepth * 1.1, height: 0.6 }, scene);
-    roof.position.set(houseX, wallHeight + houseY + 0.3, houseZ); roof.material = roofMat;
-
-    const windowMat = new BABYLON.StandardMaterial("windowMat", scene); windowMat.diffuseColor = new BABYLON.Color3(0.2,0.5,0.9); windowMat.alpha = 0.7;
-    const win1 = BABYLON.MeshBuilder.CreatePlane("window1", { width:2.6, height:2 }, scene); win1.position.set(houseX - 10, 4.2 + houseY, houseZ - houseDepth/2 + 0.02); win1.rotation.y = Math.PI; win1.material = windowMat; win1.parent = houseRoot;
-    const win2 = win1.clone("window2"); win2.position.set(houseX + 10, 4.2 + houseY, houseZ - houseDepth/2 + 0.02); win2.parent = houseRoot;
-
-    const table = BABYLON.MeshBuilder.CreateBox("table", { width:4, depth:2.2, height:0.4 }, scene); table.position.set(houseX, houseY + 0.45, houseZ); const tableMat = new BABYLON.StandardMaterial("tableMat", scene); tableMat.diffuseColor = new BABYLON.Color3(0.55,0.35,0.15); table.material = tableMat; table.parent = houseRoot;
-
-    /* ---------------------------
-       PARKOUR PLATFORMS
-       --------------------------- */
-    const platformMat = new BABYLON.StandardMaterial("platformMat", scene); platformMat.diffuseColor = new BABYLON.Color3(0.2,0.2,0.25); platformMat.specularColor = new BABYLON.Color3(0.1,0.1,0.1);
-    const platforms = []; const startZ = -6;
-    for (let i=0;i<12;i++){
-      const pw = 3 + Math.random()*2, pd = 3 + Math.random()*2, ph = 0.6;
-      const px = (Math.random()-0.5)*12; const pz = startZ - i*12;
-      let py = 1.2 + i*1.1;
-      if (i % 4 === 0) py += 2.0 + Math.random()*2.0;
-      if (i === 11) py += 3;
-      const plat = BABYLON.MeshBuilder.CreateBox(`platform_${i}`, { width:pw, depth:pd, height:ph }, scene);
-      plat.position.set(px, py, pz); plat.material = platformMat; platforms.push(plat);
+        const windowRows = Math.floor(bHeight / 8);
+        const windowCols = Math.floor(bWidth / 8);
+        for (let wr = 0; wr < windowRows; wr++) {
+          for (let wc = 0; wc < windowCols; wc++) {
+            if (Math.random() > 0.3) {
+              const win = BABYLON.MeshBuilder.CreatePlane(`window_${bx}_${bz}_${wr}_${wc}`, { width: 5, height: 5 }, scene);
+              win.position.set(baseX - bWidth/2 + 4 + wc * 8, bHeight / 15 - 15 + wr * 8, baseZ - bDepth/2 - 0.1);
+              win.material = windowMat;
+            }
+          }
+        }
+      }
     }
-    for (let j=0;j<4;j++){
-      const pw=1.2, pd=1.2, ph=0.6; const px=-12 + j*6; const pz = -120 - j*12; const py = 6 + j*1.8;
-      const plat = BABYLON.MeshBuilder.CreateBox(`pillar_${j}`, { width:pw, depth:pd, height:ph }, scene);
-      plat.position.set(px, py, pz); plat.material = platformMat; platforms.push(plat);
+
+    const skyscraperWidth = 80;
+    const skyscraperDepth = 80;
+    const skyscraperHeight = 400;
+    const skyscraper = BABYLON.MeshBuilder.CreateBox("skyscraper", { width: skyscraperWidth, depth: skyscraperDepth, height: skyscraperHeight }, scene);
+    skyscraper.position.set(0, skyscraperHeight / 2, 0);
+    skyscraper.material = skyscraperMat;
+    buildings.push(skyscraper);
+
+    const skyWindowRows = Math.floor(skyscraperHeight / 15);
+    const skyWindowCols = Math.floor(skyscraperWidth / 10);
+    for (let wr = 0; wr < skyWindowRows; wr++) {
+      for (let wc = 0; wc < skyWindowCols; wc++) {
+        const win = BABYLON.MeshBuilder.CreatePlane(`skywindow_${wr}_${wc}`, { width: 6, height: 6 }, scene);
+        win.position.set(-skyscraperWidth/2 + 5 + wc * 10, skyscraperHeight / 2 - 8 + wr * 15, -skyscraperDepth/2 - 0.1);
+        win.material = windowMat;
+      }
     }
-    const challenge = BABYLON.MeshBuilder.CreateBox("platform_challenge", { width:10, depth:10, height:0.8 }, scene);
-    challenge.position.set(houseX + 28, 6.0, houseZ - 2); challenge.material = platformMat;
 
-    /* ---------------------------
-       solidSurfaces used for AABB land detection
-       --------------------------- */
-    const solidSurfaces = [ground, houseFloor, challenge, roof];
-    platforms.forEach(p => solidSurfaces.push(p));
-    solidSurfaces.push(frontLeft, frontRight, backWall, leftWall, rightWall);
+    const solidSurfaces = [ground];
+    buildings.forEach(b => solidSurfaces.push(b));
 
-    /* ---------------------------
-       PHYSICS-LIKE VARS (movement)
-       --------------------------- */
     let velocityY = 0;
     const GRAVITY = -20;
     let grounded = false;
     let prevFeetY = player.position.y - GROUNDED_Y;
     let walkTime = 0;
 
-    /* ---------------------------
-       WEAPONS / ITEMS / HUD
-       --------------------------- */
     const hudHotbar = document.getElementById("hudHotbar");
     const inventory = [
       { id: "sword", label: "🗡️", count: Infinity, tooltip: "Sword — melee" },
       { id: "bomb", label: "💣", count: Infinity, tooltip: "Bomb — throw" },
       { id: "block", label: "▦", count: Infinity, tooltip: "Place block" },
-      { id: "spawner", label: "👤+", count: Infinity, tooltip: "Spawn NPC" }
+      { id: "spawner", label: "👤+", count: Infinity, tooltip: "Spawn NPC" },
+      { id: "gun", label: "🔫", count: Infinity, tooltip: "Gun — shoot" }
     ];
     let activeIndex = 0;
     function buildHotbar(){
@@ -333,55 +291,50 @@
     buildHotbar();
     function setActiveIndex(i){ activeIndex = i; buildHotbar(); updateHeldItem(); }
 
-    // create sword mesh (attached to rightArm)
     const sword = BABYLON.MeshBuilder.CreateBox("sword", { width:0.25, height:3, depth:0.5 }, scene);
     const swordMat = new BABYLON.StandardMaterial("swordMat", scene); swordMat.diffuseColor = new BABYLON.Color3(0.85,0.85,0.9); sword.material = swordMat;
     sword.parent = rightArm; sword.position.set(0, -1, 0.6); sword.rotation.x = Math.PI/2;
 
-    // default arm/sword rotations for animation restore
+    const gun = BABYLON.MeshBuilder.CreateBox("gun", { width:0.4, height:0.6, depth:1 }, scene);
+    gun.parent = rightArm;
+    gun.position.set(0, -1.1, 0.7);
+    gun.rotation.x = 0;
+    const gunBarrel = BABYLON.MeshBuilder.CreateCylinder("gunBarrel", { diameter:0.4, height:3.5 }, scene);
+    gunBarrel.parent = gun;
+    gunBarrel.position.set(0, -1.5, 0.5);
+    const gunMat = new BABYLON.StandardMaterial("gunMat", scene);
+    gunMat.diffuseColor = new BABYLON.Color3(0.12, 0.12, 0.12);
+    gun.material = gunMat;
+    gunBarrel.material = gunMat;
+    gun.setEnabled(false);
+
     const defaultRightArmRot = rightArm.rotation.clone();
     const defaultSwordRot = sword.rotation.clone();
 
-    // sword animation state
     let swordSwing = false;
     let swordTimer = 0;
     const SWORD_SWING_TIME = 0.42;
 
-    // bombs
+    let gunCooldown = 0;
+    const GUN_FIRE_RATE = 0.30;
+
+    const crosshairElement = document.getElementById("crosshair");
+
     const bombs = [];
     const bombMat = new BABYLON.StandardMaterial("bombMat", scene); bombMat.diffuseColor = new BABYLON.Color3(0.08,0.08,0.08);
 
-    // helpers
     function lerp(a,b,t){ return a + (b-a)*t; }
     function easeInOut(t){ return t<0.5 ? 2*t*t : -1 + (4-2*t)*t; }
-
-    // angle helpers for NPC facing
     function wrapAngle(a) { a = (a + Math.PI) % (Math.PI * 2); if (a < 0) a += Math.PI * 2; return a - Math.PI; }
     function shortestAngleDelta(from, to) { return wrapAngle(to - from); }
-    const NPC_TURN_SPEED = 6.0; // radians/sec - tweak to taste
+    const NPC_TURN_SPEED = 6.0;
 
-    // ---------- Health UI helpers ----------
     function createNpcHealthBar(n) {
-      if (!n) return;
       const w = 64;
       const bg = new BABYLON.GUI.Rectangle();
-      bg.width = w + "px";
-      bg.height = "8px";
-      bg.cornerRadius = 4;
-      bg.color = "black";
-      bg.thickness = 1;
-      bg.background = "rgba(0,0,0,0.6)";
-      bg.isHitTestVisible = false;
-
+      bg.width = w + "px"; bg.height = "8px"; bg.cornerRadius = 4; bg.color = "black"; bg.thickness = 1; bg.background = "rgba(0,0,0,0.6)"; bg.isHitTestVisible = false;
       const fill = new BABYLON.GUI.Rectangle();
-      fill.width = (w) + "px";
-      fill.height = "100%";
-      fill.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-      fill.cornerRadius = 3;
-      fill.isHitTestVisible = false;
-      fill.paddingLeft = "0px";
-      fill.background = "green";
-
+      fill.width = (w) + "px"; fill.height = "100%"; fill.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT; fill.cornerRadius = 3; fill.isHitTestVisible = false; fill.paddingLeft = "0px"; fill.background = "green";
       bg.addControl(fill);
       ui.addControl(bg);
       n.healthBar = { bg, fill, width: w };
@@ -391,32 +344,23 @@
       if (!n || !n.healthBar || !n.torso) return;
       const headWorldPos = n.torso.getAbsolutePosition().add(new BABYLON.Vector3(0, 1.5, 0));
       const proj = BABYLON.Vector3.Project(headWorldPos, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
-      if (!isFinite(proj.x) || !isFinite(proj.y)) {
-        n.healthBar.bg.isVisible = false;
-        return;
-      }
+      if (!isFinite(proj.x) || !isFinite(proj.y)) { n.healthBar.bg.isVisible = false; return; }
       n.healthBar.bg.isVisible = true;
       n.healthBar.bg.left = proj.x - engine.getRenderWidth()/2 + "px";
       n.healthBar.bg.top  = proj.y - engine.getRenderHeight()/2 - 30 + "px";
       const pct = Math.max(0, Math.min(1, (n.health || n.maxHealth) / (n.maxHealth || 100)));
       const px = Math.max(0, Math.floor(n.healthBar.width * pct));
       n.healthBar.fill.width = px + "px";
-      // color transition green -> yellow -> red
       if (pct > 0.6) n.healthBar.fill.background = "green";
       else if (pct > 0.25) n.healthBar.fill.background = "yellow";
       else n.healthBar.fill.background = "red";
     }
 
-    // ---------- NPC damage / ragdoll / despawn ----------
     function damageNpc(n, dmg) {
       if (!n || n.ragdoll) return;
       if (typeof n.health !== "number") n.health = n.maxHealth || 100;
       n.health -= dmg;
-      if (n.health <= 0) {
-        n.health = 0;
-        // go ragdoll instead of immediate removal
-        killNpc(n);
-      }
+      if (n.health <= 0) { n.health = 0; killNpc(n); }
     }
 
     function killNpc(n) {
@@ -426,34 +370,22 @@
       n.dest = null;
       n.ragdollDeathTime = Date.now();
       if (n.velocity && typeof n.velocity.copyFrom === "function") n.velocity.copyFrom(BABYLON.Vector3.Zero());
-      // upward toss & random horizontal knockback
       n.velocityY = 6 + Math.random()*5;
       const dir = new BABYLON.Vector3(Math.random()-0.5, 0, Math.random()-0.5);
       dir.normalize();
       n.ragdollVel = dir.scale(8 + Math.random()*6);
-      n.ragdollAng = {
-        la: (Math.random()-0.5)*8,
-        ra: (Math.random()-0.5)*8,
-        ll: (Math.random()-0.5)*8,
-        rl: (Math.random()-0.5)*8
-      };
-      // keep health bar visible until despawn; optionally fade out later
+      n.ragdollAng = { la: (Math.random()-0.5)*8, ra: (Math.random()-0.5)*8, ll: (Math.random()-0.5)*8, rl: (Math.random()-0.5)*8 };
     }
 
     function disposeNpc(n) {
       try {
-        if (n.healthBar) {
-          try { ui.removeControl(n.healthBar.bg); } catch(e) {}
-          n.healthBar = null;
-        }
+        if (n.healthBar) { try { ui.removeControl(n.healthBar.bg); } catch(e) {} n.healthBar = null; }
         n.root.getChildren().forEach(c => { try { c.dispose(); } catch(e){} });
         n.root.dispose();
       } catch(e){}
-      const idx = npcs.indexOf(n);
-      if (idx >= 0) npcs.splice(idx, 1);
+      const idx = npcs.indexOf(n); if (idx >= 0) npcs.splice(idx, 1);
     }
 
-    // blocks placed
     function spawnBlockAt(pos, size=1.4){
       const box = BABYLON.MeshBuilder.CreateBox(`placed_block_${Date.now()}`, { width:size, depth:size, height:size }, scene);
       const mat = new BABYLON.StandardMaterial("placedBlockMat", scene);
@@ -465,81 +397,34 @@
       return box;
     }
 
-    // NPCs
     const npcs = [];
 
-    // IMPORTANT: make NPCs use the exact same model/joint placement & speed as player
     function createNpcAt(pos){
       const root = new BABYLON.TransformNode(`npc_root_${Date.now()}`, scene);
       root.position = pos.clone();
-
-      // BUILD exact same geometry & joint placement as player:
       const t = BABYLON.MeshBuilder.CreateBox(`npc_t_${Date.now()}`, { width:2, height:2, depth:1 }, scene);
       t.parent = root; t.position.set(0,0,0);
-
       const h = BABYLON.MeshBuilder.CreateBox(`npc_h_${Date.now()}`, { size:1.5 }, scene);
       h.parent = t; h.position.set(0,1.8,0);
-
-      // left arm - same pivot & placement
       const la = BABYLON.MeshBuilder.CreateBox(`npc_la_${Date.now()}`, { height:2, width:0.8, depth:0.8 }, scene);
-      la.setPivotPoint(new BABYLON.Vector3(0,1,0));
-      la.parent = t; la.position.set(-1.4,0,0);
-
-      // right arm - clone of left arm style (but unique meshes)
+      la.setPivotPoint(new BABYLON.Vector3(0,1,0)); la.parent = t; la.position.set(-1.4,0,0);
       const ra = BABYLON.MeshBuilder.CreateBox(`npc_ra_${Date.now()}`, { height:2, width:0.8, depth:0.8 }, scene);
-      ra.setPivotPoint(new BABYLON.Vector3(0,1,0));
-      ra.parent = t; ra.position.set(1.4,0,0);
-
-      // left leg
+      ra.setPivotPoint(new BABYLON.Vector3(0,1,0)); ra.parent = t; ra.position.set(1.4,0,0);
       const ll = BABYLON.MeshBuilder.CreateBox(`npc_ll_${Date.now()}`, { height:2, width:0.9, depth:0.9 }, scene);
-      ll.setPivotPoint(new BABYLON.Vector3(0,1,0));
-      ll.parent = t; ll.position.set(-0.5,-1.9,0);
-
-      // right leg
+      ll.setPivotPoint(new BABYLON.Vector3(0,1,0)); ll.parent = t; ll.position.set(-0.5,-1.9,0);
       const rl = BABYLON.MeshBuilder.CreateBox(`npc_rl_${Date.now()}`, { height:2, width:0.9, depth:0.9 }, scene);
-      rl.setPivotPoint(new BABYLON.Vector3(0,1,0));
-      rl.parent = t; rl.position.set(0.5,-1.9,0);
-
+      rl.setPivotPoint(new BABYLON.Vector3(0,1,0)); rl.parent = t; rl.position.set(0.5,-1.9,0);
       const mat = new BABYLON.StandardMaterial("npcMat_"+Date.now()+"", scene);
       mat.diffuseColor = new BABYLON.Color3(Math.random()*0.6 + 0.3, Math.random()*0.6 + 0.3, Math.random()*0.6 + 0.3);
       [t,h,la,ra,ll,rl].forEach(m => m.material = mat);
-
-      // crucial: use same ground half-height value as player (GROUNDED_Y)
       const npc = {
-        root,
-        torso: t,
-        speed: 15.0, // MATCH PLAYER FORWARD SPEED (player uses 15 for forward translate)
-        dest: null,
-        velocity: new BABYLON.Vector3(0,0,0),
-        velocityY: 0,
-        grounded: false,
-        groundOffset: GROUNDED_Y, // EXACT same snap as player
-        limbs: { la, ra, ll, rl },
-
-        // --- NPC state fields (added) ---
-        state: "move",
-        stateTimer: 0,
-        walkTime: Math.random()*10,
-        reached: false,
-
-        // health
-        health: 100,
-        maxHealth: 100,
-
-        // --- ragdoll fields (added) ---
-        ragdoll: false,
-        ragdollVel: new BABYLON.Vector3(0,0,0),
-        ragdollAng: {
-          la: (Math.random()-0.5)*6,
-          ra: (Math.random()-0.5)*6,
-          ll: (Math.random()-0.5)*6,
-          rl: (Math.random()-0.5)*6
-        },
-
+        root, torso: t, speed: 15.0, dest: null, velocity: new BABYLON.Vector3(0,0,0), velocityY: 0, grounded: false,
+        groundOffset: GROUNDED_Y, limbs: { la, ra, ll, rl },
+        state: "move", stateTimer: 0, walkTime: Math.random()*10, reached: false,
+        health: 100, maxHealth: 100,
+        ragdoll: false, ragdollVel: new BABYLON.Vector3(0,0,0), ragdollAng: { la: (Math.random()-0.5)*6, ra: (Math.random()-0.5)*6, ll: (Math.random()-0.5)*6, rl: (Math.random()-0.5)*6 },
         turnSpeed: NPC_TURN_SPEED
       };
-
-      // initial ground snap using same raycast predicate as player
       const downFrom = new BABYLON.Vector3(root.position.x, 60, root.position.z);
       const downRay = new BABYLON.Ray(downFrom, new BABYLON.Vector3(0,-1,0), 200);
       const downRes = scene.pickWithRay(downRay, (m) => m === ground || solidSurfaces.indexOf(m) !== -1);
@@ -549,44 +434,28 @@
       } else {
         root.position.y = (root.position.y || 0) + npc.groundOffset;
       }
-
       createNpcHealthBar(npc);
-
       npcs.push(npc);
       return npc;
     }
 
-    // spawn sample NPCs
-    for (let i=0;i<6;i++){
-      createNpcAt(new BABYLON.Vector3(Math.random()*60 - 30, 0, Math.random()*-80));
+    for (let i=0;i<8;i++){
+      createNpcAt(new BABYLON.Vector3(Math.random()*300 - 150, 0, Math.random()*300 - 150));
     }
 
-    function removeNpc(n) {
-      try { n.root.getChildren().forEach(c => c.dispose()); n.root.dispose(); } catch(e) {}
-      const idx = npcs.indexOf(n); if (idx >= 0) npcs.splice(idx, 1);
-    }
-
-    /* ---------------------------
-       UTIL: forward vector from player rotation
-       --------------------------- */
     function playerForward() { return new BABYLON.Vector3(Math.sin(player.rotation.y), 0, Math.cos(player.rotation.y)).normalize(); }
 
-    /* ---------------------------
-       USE ACTIONS
-       --------------------------- */
     function attemptUse() {
       const it = inventory[activeIndex]; if (!it) return;
       if (it.id === "sword") { if (!swordSwing) { swordSwing = true; swordTimer = 0; } }
       else if (it.id === "bomb") { if (isFinite(it.count) && it.count <= 0) return; throwBomb(); if (isFinite(it.count)) { it.count--; buildHotbar(); } }
       else if (it.id === "block") { placeBlockCenter(); }
       else if (it.id === "spawner") { if (isFinite(it.count) && it.count <= 0) return; createNpcAt(player.position.add(playerForward().scale(3))); if (isFinite(it.count)) { it.count--; buildHotbar(); } }
+      else if (it.id === "gun") { fireGun(); }
     }
 
     scene.onPointerObservable.add((pi) => { if (pi.type === BABYLON.PointerEventTypes.POINTERDOWN && pi.event.button === 0) attemptUse(); });
 
-    /* ---------------------------
-       BOMB: throw, update, explode
-       --------------------------- */
     function throwBomb() {
       const b = BABYLON.MeshBuilder.CreateSphere(`bomb_${Date.now()}`, { diameter:1.8 }, scene);
       b.material = bombMat;
@@ -597,6 +466,53 @@
       b.velocity.y = 8;
       b.life = 2.5;
       bombs.push(b);
+    }
+
+    function fireGun() {
+      if (gunCooldown > 0) return;
+      gunCooldown = GUN_FIRE_RATE;
+
+      const flash = BABYLON.MeshBuilder.CreateSphere("gunFlash_"+Date.now(), { diameter:1 }, scene);
+      const flashMat = new BABYLON.StandardMaterial("gunFlashMat_"+Date.now(), scene);
+      flashMat.emissiveColor = new BABYLON.Color3(1, 0.9, 0.3);
+      flashMat.alpha = 0.75;
+      flashMat.disableLighting = true;
+      flash.material = flashMat;
+      
+      const barrelWorldPos = gun.getAbsolutePosition();
+      const forward = playerForward();
+      flash.position = barrelWorldPos.add(forward.scale(1.2));
+
+      let flashTime = 0;
+      const flashObs = scene.onBeforeRenderObservable.add(() => {
+        flashTime += engine.getDeltaTime()/1000;
+        flashMat.alpha = Math.max(0, 0.75*(1-flashTime/0.15));
+        if (flashTime > 0.17) {
+          try { flash.dispose(); } catch(e) {}
+          scene.onBeforeRenderObservable.remove(flashObs);
+        }
+      });
+
+      // Raycast from screen center (30% from top) - where the crosshair is
+      const screenX = engine.getRenderWidth() / 2;
+      const screenY = engine.getRenderHeight() * 0.3;
+      
+      const hit = scene.pick(screenX, screenY, (m) => {
+        for (const npc of npcs) {
+          const npcMeshes = npc.root.getChildMeshes();
+          if (npcMeshes.includes(m)) return true;
+        }
+        return false;
+      });
+
+      if (hit && hit.hit && hit.pickedMesh) {
+        for (const npc of npcs) {
+          if (npc.root.getChildMeshes().includes(hit.pickedMesh)) {
+            killNpc(npc);
+            break;
+          }
+        }
+      }
     }
 
     function explodeBombAt(pos, radius = 30) {
@@ -659,7 +575,6 @@
       const originalCamHeight = camera.heightOffset;
       const originalCamRadius = camera.radius;
       const SHAKE_DURATION = 0.35;
-
       sparks.start(); smokePS.start();
 
       let t = 0; const duration = 0.9;
@@ -689,7 +604,7 @@
           const f = (SHAKE_DURATION - t) / SHAKE_DURATION; const mag = 0.3 * f;
           camera.heightOffset = originalCamHeight + (Math.random() - 0.5) * mag;
           camera.radius = originalCamRadius + (Math.random() - 0.5) * (mag * 0.8);
-        } else if (t >= SHAKE_DURATION && (camera.heightOffset !== originalCamHeight || camera.radius !== originalCamRadius)) {
+        } else if (t >= SHAKE_DURATION) {
           camera.heightOffset = originalCamHeight; camera.radius = originalCamRadius;
         }
 
@@ -702,14 +617,12 @@
         }
       });
 
-      // damage NPCs around blast (changed from instant dispose to damage)
       for (let i = npcs.length - 1; i >= 0; i--) {
         const n = npcs[i]; const d = BABYLON.Vector3.Distance(n.root.position, pos);
         if (d <= radius * 1.8) {
           const pct = 1 - Math.min(1, d / (radius * 1.8));
-          const dmg = Math.round(30 + pct * 120); // explosion does 30..150 depending on proximity
+          const dmg = Math.round(30 + pct * 120);
           damageNpc(n, dmg);
-          // knockback for ragdoll or for alive NPCs velocity
           const dir = n.root.position.subtract(pos).normalize();
           n.velocity = (n.velocity || new BABYLON.Vector3(0,0,0)).add(dir.scale(6 * pct));
           n.velocityY = (n.velocityY || 0) + 4 * pct;
@@ -717,18 +630,12 @@
       }
     }
 
-    /* ---------------------------
-       BLOCK PLACEMENT
-       --------------------------- */
     function placeBlockCenter() {
       const pick = scene.pick(engine.getRenderWidth()/2, engine.getRenderHeight()/2, (m) => m !== sky);
       if (pick && pick.hit && pick.pickedPoint) spawnBlockAt(pick.pickedPoint, 1.4);
       else { const p = player.position.add(playerForward().scale(4)); p.y = 0; spawnBlockAt(p, 1.4); }
     }
 
-    /* ---------------------------
-       SWORD HIT CHECK
-       --------------------------- */
     function swordHitCheck() {
       const forward = playerForward();
       for (let i = npcs.length - 1; i >= 0; i--) {
@@ -737,9 +644,7 @@
           const dNorm = to.normalize();
           const dot = BABYLON.Vector3.Dot(dNorm, forward);
           if (dot > 0.15) {
-            // apply damage, not instant kill
-            damageNpc(n, 40); // sword deals 40
-            // small knockback
+            damageNpc(n, 40);
             const kb = n.root.position.subtract(player.position).normalize().scale(3);
             n.velocity = (n.velocity || new BABYLON.Vector3(0,0,0)).add(kb);
             n.velocityY = 3;
@@ -748,79 +653,53 @@
       }
     }
 
-    /* ---------------------------
-       HELPER: show/hide held item
-       --------------------------- */
-    function updateHeldItem() { const it = inventory[activeIndex]; sword.setEnabled(it && it.id === "sword"); }
+    function updateHeldItem() {
+      const it = inventory[activeIndex];
+      sword.setEnabled(it && it.id === "sword");
+      gun.setEnabled(it && it.id === "gun");
+      if (it && it.id === "gun") {
+        crosshairElement.style.display = "block";
+      } else {
+        crosshairElement.style.display = "none";
+      }
+    }
     updateHeldItem();
 
-    /* ---------------------------
-       CARS: simple drivable vehicles
-       --------------------------- */
     const cars = [];
-    let playerCar = null; // reference to car object when player is driving
+    let playerCar = null;
     const CAR_ENTER_DISTANCE = 3.5;
 
     function createCarAt(pos, color = new BABYLON.Color3(0.8,0.1,0.1)) {
       const root = new BABYLON.TransformNode(`car_root_${Date.now()}`, scene);
       root.position = pos.clone();
-
       const body = BABYLON.MeshBuilder.CreateBox(`car_body_${Date.now()}`, { width:6, depth:10, height:10 }, scene);
-      body.parent = root;
-      body.position.y = 0.6;
+      body.parent = root; body.position.y = 0.6;
       const mat = new BABYLON.StandardMaterial("carMat"+Date.now(), scene);
       mat.diffuseColor = color;
       body.material = mat;
-
-      // simple seat marker (local seat position)
-      const seatLocal = new BABYLON.Vector3(0, 0.95, 0.6); // above car body
-      const seatWorld = () => body.getAbsolutePosition().add(BABYLON.Vector3.TransformCoordinates(seatLocal, body.getWorldMatrix().getRotationMatrix()));
-
-      // seat prompt GUI
+      const seatLocal = new BABYLON.Vector3(0, 0.95, 0.6);
       const prompt = new BABYLON.GUI.Rectangle();
-      prompt.width = "110px";
-      prompt.height = "28px";
-      prompt.cornerRadius = 6;
-      prompt.thickness = 1;
-      prompt.background = "rgba(0,0,0,0.6)";
-      prompt.color = "white";
-      prompt.isHitTestVisible = false;
+      prompt.width = "110px"; prompt.height = "28px"; prompt.cornerRadius = 6; prompt.thickness = 1;
+      prompt.background = "rgba(0,0,0,0.6)"; prompt.color = "white"; prompt.isHitTestVisible = false;
       const label = new BABYLON.GUI.TextBlock();
-      label.text = "E to get in";
-      label.fontSize = 14;
+      label.text = "E to get in"; label.fontSize = 14;
       prompt.addControl(label);
       prompt.isVisible = false;
       ui.addControl(prompt);
-
-      const car = {
-        root, body, seatLocal, prompt, promptLabel: label,
-        speed: 0,
-        maxSpeed: 1000, // higher than player
-        accel: 300,
-        steer: 0,
-        yaw: 0,
-        braking: 0,
-        occupant: null,
-        radius: 6
-      };
-
+      const car = { root, body, seatLocal, prompt, promptLabel: label, speed: 0, maxSpeed: 1000, accel: 300, steer: 0, yaw: 0, braking: 0, occupant: null, radius: 6 };
       cars.push(car);
       return car;
     }
 
-    // spawn a few cars
-    createCarAt(new BABYLON.Vector3(10,0,-20), new BABYLON.Color3(0.2,0.7,1.0));
-    createCarAt(new BABYLON.Vector3(-20,0,-40), new BABYLON.Color3(1.0,0.6,0.1));
+    createCarAt(new BABYLON.Vector3(80,0,-80), new BABYLON.Color3(0.2,0.7,1.0));
+    createCarAt(new BABYLON.Vector3(-80,0,80), new BABYLON.Color3(1.0,0.6,0.1));
 
     function enterCar(car) {
       if (!car || playerCar) return;
       playerCar = car;
       car.occupant = player;
-      // hide player meshes
       player.getChildMeshes().forEach(m => m.setEnabled(false));
-      // move player transform to car for consistency
       player.position.copyFrom(car.root.position.add(new BABYLON.Vector3(0,2,0)));
-      // camera now follows car's body
       camera.lockedTarget = car.body;
       camera.radius = 12;
       camera.heightOffset = 4;
@@ -828,7 +707,6 @@
 
     function exitCar() {
       if (!playerCar) return;
-      // drop player to seat position
       const car = playerCar;
       player.getChildMeshes().forEach(m => m.setEnabled(true));
       player.position.copyFrom(car.root.position.add(new BABYLON.Vector3(0, car.body.position.y + 1.0, -1.0)));
@@ -839,7 +717,6 @@
       playerCar = null;
     }
 
-    // check car collisions with NPCs
     function checkCarNpcCollisions(car, dt) {
       if (!car) return;
       const carPos = car.root.position.add(car.body.position);
@@ -848,86 +725,151 @@
         const d = BABYLON.Vector3.Distance(carPos, n.root.position);
         const collideDist = car.radius + 1.0;
         if (d < collideDist) {
-          // hit: apply damage proportional to speed
           const damage = Math.round(Math.abs(car.speed) * 0.9) + 30;
           damageNpc(n, damage);
-          // knockback NPC
           const dir = n.root.position.subtract(carPos).normalize();
           n.velocity = (n.velocity || new BABYLON.Vector3(0,0,0)).add(dir.scale(12));
           n.velocityY = 6;
-          // slow car a bit on impact
           car.speed *= 0.6;
         }
       }
     }
 
-    /* ---------------------------
-       RUNTIME: movement, bombs, sword, NPC AI
-       --------------------------- */
     scene.onBeforeRenderObservable.add(() => {
       const dt = engine.getDeltaTime() / 1000;
-      clouds.position.z += dt * 2; if (clouds.position.z > 600) clouds.position.z = -600;
+      clouds.position.z += dt * 2; if (clouds.position.z > 1200) clouds.position.z = -1200;
 
-      // MOVEMENT
-      let moving = false; if (input["w"] || input["keyw"]) { player.translate(BABYLON.Axis.Z, 15 * dt, BABYLON.Space.LOCAL); moving = true; }
+      if (gunCooldown > 0) gunCooldown -= dt;
+
+      // Apply camera rotation with instant stopping
+      if (Math.abs(cameraVelocityX) > 0.0001 || Math.abs(cameraVelocityY) > 0.0001) {
+        player.rotation.y += cameraVelocityX;
+        camera.heightOffset += cameraVelocityY;
+        camera.heightOffset = BABYLON.Scalar.Clamp(camera.heightOffset, -0, 30);
+        cameraVelocityX = 0;
+        cameraVelocityY = 0;
+      }
+
+      // Camera collision detection
+      const cameraPos = camera.position;
+      const cameraRadius = 1.0;
+      
+      // Check collision with buildings
+      for (let i = 0; i < buildings.length; i++) {
+        const building = buildings[i];
+        const bi = building.getBoundingInfo().boundingBox;
+        const min = bi.minimumWorld;
+        const max = bi.maximumWorld;
+        
+        // Check if camera is inside building bounds
+        if (cameraPos.x > min.x - cameraRadius && cameraPos.x < max.x + cameraRadius &&
+            cameraPos.y > min.y - cameraRadius && cameraPos.y < max.y + cameraRadius &&
+            cameraPos.z > min.z - cameraRadius && cameraPos.z < max.z + cameraRadius) {
+          
+          // Push camera out based on closest surface
+          const distToMinX = cameraPos.x - min.x;
+          const distToMaxX = max.x - cameraPos.x;
+          const distToMinY = cameraPos.y - min.y;
+          const distToMaxY = max.y - cameraPos.y;
+          const distToMinZ = cameraPos.z - min.z;
+          const distToMaxZ = max.z - cameraPos.z;
+          
+          const minDist = Math.min(distToMinX, distToMaxX, distToMinY, distToMaxY, distToMinZ, distToMaxZ);
+          
+          if (minDist === distToMinX) camera.position.x = min.x - cameraRadius;
+          else if (minDist === distToMaxX) camera.position.x = max.x + cameraRadius;
+          else if (minDist === distToMinY) camera.position.y = min.y - cameraRadius;
+          else if (minDist === distToMaxY) camera.position.y = max.y + cameraRadius;
+          else if (minDist === distToMinZ) camera.position.z = min.z - cameraRadius;
+          else if (minDist === distToMaxZ) camera.position.z = max.z + cameraRadius;
+        }
+      }
+      
+      // Check collision with solid surfaces (placed blocks)
+      for (let i = 0; i < solidSurfaces.length; i++) {
+        if (solidSurfaces[i] === ground) continue; // Skip ground
+        const surface = solidSurfaces[i];
+        const bi = surface.getBoundingInfo().boundingBox;
+        const min = bi.minimumWorld;
+        const max = bi.maximumWorld;
+        
+        if (cameraPos.x > min.x - cameraRadius && cameraPos.x < max.x + cameraRadius &&
+            cameraPos.y > min.y - cameraRadius && cameraPos.y < max.y + cameraRadius &&
+            cameraPos.z > min.z - cameraRadius && cameraPos.z < max.z + cameraRadius) {
+          
+          const distToMinX = cameraPos.x - min.x;
+          const distToMaxX = max.x - cameraPos.x;
+          const distToMinY = cameraPos.y - min.y;
+          const distToMaxY = max.y - cameraPos.y;
+          const distToMinZ = cameraPos.z - min.z;
+          const distToMaxZ = max.z - cameraPos.z;
+          
+          const minDist = Math.min(distToMinX, distToMaxX, distToMinY, distToMaxY, distToMinZ, distToMaxZ);
+          
+          if (minDist === distToMinX) camera.position.x = min.x - cameraRadius;
+          else if (minDist === distToMaxX) camera.position.x = max.x + cameraRadius;
+          else if (minDist === distToMinY) camera.position.y = min.y - cameraRadius;
+          else if (minDist === distToMaxY) camera.position.y = max.y + cameraRadius;
+          else if (minDist === distToMinZ) camera.position.z = min.z - cameraRadius;
+          else if (minDist === distToMaxZ) camera.position.z = max.z + cameraRadius;
+        }
+      }
+
+      let moving = false; 
+      if (input["w"] || input["keyw"]) { player.translate(BABYLON.Axis.Z, 15 * dt, BABYLON.Space.LOCAL); moving = true; }
       if (input["s"] || input["keys"]) { player.translate(BABYLON.Axis.Z, -10 * dt, BABYLON.Space.LOCAL); moving = true; }
-      if (input["a"] || input["keya"]) player.rotation.y -= 2.5 * dt; if (input["d"] || input["keyd"]) player.rotation.y += 2.5 * dt;
+      if (input["a"] || input["keya"]) player.rotation.y -= 2.5 * dt;
+      if (input["d"] || input["keyd"]) player.rotation.y += 2.5 * dt;
 
-      // If driving a car, override player movement with car controls
       if (playerCar) {
-        // driving controls: W accelerate, S brake/reverse, A/D steer
         const car = playerCar;
         const forwardInput = (input["w"] || input["keyw"]) ? 1 : (input["s"] || input["keys"]) ? -1 : 0;
         const steerInput = (input["a"] || input["keya"]) ? -1 : (input["d"] || input["keyd"]) ? 1 : 0;
 
-        // accelerate / brake
         if (forwardInput > 0) car.speed = Math.min(car.maxSpeed, car.speed + car.accel * dt);
         else if (forwardInput < 0) car.speed = Math.max(-car.maxSpeed*0.4, car.speed - car.accel * dt);
         else car.speed = car.speed * Math.max(0, 1 - dt*2.5);
 
-        // steering depends on speed
         car.yaw += steerInput * (Math.max(0.6, Math.abs(car.speed) / car.maxSpeed)) * dt * 2.4;
         car.root.rotation.y = car.yaw;
 
-        // move forward in local Z
         const forwardVec = new BABYLON.Vector3(Math.sin(car.root.rotation.y), 0, Math.cos(car.root.rotation.y));
-        car.root.position.addInPlace(forwardVec.scale(car.speed * dt * 0.1)); // scale factor for tuning
+        car.root.position.addInPlace(forwardVec.scale(car.speed * dt * 0.1));
 
-        // update body absolute position (body parented to root so fine)
-        // simulate minor friction
         car.speed *= Math.max(0, 1 - dt*0.2);
 
-        // check collisions against NPCs
         checkCarNpcCollisions(car, dt);
-
-        // update seat prompt (hide while driving)
         if (car.prompt) car.prompt.isVisible = false;
       }
 
-      // JUMP
       if ((input[" "] || input["space"]) && grounded) { velocityY = 14; grounded = false; }
       velocityY += GRAVITY * dt; player.position.y += velocityY * dt;
 
-      // collisions with walls
       const playerRadiusX = 0.95, playerRadiusZ = 0.7; const px = player.position.x, pz = player.position.z;
       const playerMinY = player.position.y - GROUNDED_Y, playerMaxY = player.position.y + 2.5;
       const playerMinX = px - playerRadiusX, playerMaxX = px + playerRadiusX;
       const playerMinZ = pz - playerRadiusZ, playerMaxZ = pz + playerRadiusZ;
-      const wallList = [frontLeft, frontRight, leftWall, rightWall, backWall];
-      for (let i=0;i<wallList.length;i++){ const w = wallList[i]; const bi = w.getBoundingInfo().boundingBox; const min = bi.minimumWorld, max = bi.maximumWorld; const vOverlap = !(playerMaxY < min.y || playerMinY > max.y); if (!vOverlap) continue; const overlapX = Math.min(playerMaxX, max.x) - Math.max(playerMinX, min.x); const overlapZ = Math.min(playerMaxZ, max.z) - Math.max(playerMinZ, min.z); if (overlapX > 0 && overlapZ > 0) { if (overlapX < overlapZ) { if ((playerMaxX + playerMinX)/2 > (min.x + max.x)/2) player.position.x += overlapX + 0.02; else player.position.x -= overlapX + 0.02; } else { if ((playerMaxZ + playerMinZ)/2 > (min.z + max.z)/2) player.position.z += overlapZ + 0.02; else player.position.z -= overlapZ + 0.02; } } }
+      for (let i=0;i<buildings.length;i++){ const w = buildings[i]; const bi = w.getBoundingInfo().boundingBox; const min = bi.minimumWorld, max = bi.maximumWorld; const vOverlap = !(playerMaxY < min.y || playerMinY > max.y); if (!vOverlap) continue; const overlapX = Math.min(playerMaxX, max.x) - Math.max(playerMinX, min.x); const overlapZ = Math.min(playerMaxZ, max.z) - Math.max(playerMinZ, min.z); if (overlapX > 0 && overlapZ > 0) { if (overlapX < overlapZ) { if ((playerMaxX + playerMinX)/2 > (min.x + max.x)/2) player.position.x += overlapX + 0.02; else player.position.x -= overlapX + 0.02; } else { if ((playerMaxZ + playerMinZ)/2 > (min.z + max.z)/2) player.position.z += overlapZ + 0.02; else player.position.z -= overlapZ + 0.02; } } }
 
-      // landing AABB
       const px2 = player.position.x, pz2 = player.position.z; const playerMinX2 = px2 - playerRadiusX, playerMaxX2 = px2 + playerRadiusX; const playerMinZ2 = pz2 - playerRadiusZ, playerMaxZ2 = pz2 + playerRadiusZ; const playerFeetY = player.position.y - GROUNDED_Y;
       let landed = false; if (velocityY <= 0) { for (let i=0;i<solidSurfaces.length;i++){ const s = solidSurfaces[i]; const bi = s.getBoundingInfo().boundingBox; const min = bi.minimumWorld, max = bi.maximumWorld; const topY = max.y; const surfMinX = min.x, surfMaxX = max.x, surfMinZ = min.z, surfMaxZ = max.z; const overlapX2 = (playerMaxX2 >= surfMinX) && (playerMinX2 <= surfMaxX); const overlapZ2 = (playerMaxZ2 >= surfMinZ) && (playerMinZ2 <= surfMaxZ); if (overlapX2 && overlapZ2) { if ((playerFeetY <= topY + 0.25 && prevFeetY >= topY - 1.0) || (playerFeetY < topY && prevFeetY >= topY - 1.0)) { player.position.y = topY + GROUNDED_Y; velocityY = 0; grounded = true; landed = true; break; } } } }
       if (!landed) { if (player.position.y <= GROUNDED_Y) { player.position.y = GROUNDED_Y; velocityY = 0; grounded = true; } else grounded = false; }
       prevFeetY = player.position.y - GROUNDED_Y;
 
-      // WALK ANIM (player)
       if (moving && grounded && !swordSwing) { walkTime += dt * 8; leftLeg.rotation.x = Math.sin(walkTime) * 0.8; rightLeg.rotation.x = -Math.sin(walkTime) * 0.8; leftArm.rotation.x = -Math.sin(walkTime) * 0.6; rightArm.rotation.x = Math.sin(walkTime) * 0.6; }
       else { leftLeg.rotation.x *= 0.8; rightLeg.rotation.x *= 0.8; leftArm.rotation.x *= 0.8; rightArm.rotation.x *= 0.8; }
       if (!grounded) { leftLeg.rotation.x = 0; rightLeg.rotation.x = 0; leftArm.rotation.x = -2.8; rightArm.rotation.x = -2.8; }
 
-      // SWORD ANIMATION (fixed interpolation)
+      if (inventory[activeIndex] && inventory[activeIndex].id === "gun") {
+        rightArm.rotation.x = -1.5;
+        rightArm.rotation.y = 0;
+        gun.rotation.x = 0;
+      } else if (!swordSwing && (moving || grounded)) {
+        rightArm.rotation.x = defaultRightArmRot.x;
+        rightArm.rotation.y = defaultRightArmRot.y;
+        gun.rotation.x = 0;
+      }
+
       if (inventory[activeIndex] && inventory[activeIndex].id === "sword" && swordSwing) {
         swordTimer += dt; const tt = Math.min(1, swordTimer / SWORD_SWING_TIME);
         if (tt < 0.28 / SWORD_SWING_TIME) {
@@ -938,12 +880,11 @@
           const start = 0.28 / SWORD_SWING_TIME;
           const end = 0.7 / SWORD_SWING_TIME;
           const p = (tt - start) / (end - start);
-          const ep = 1 - (1 - p) * (1 - p); // ease out
+          const ep = 1 - (1 - p) * (1 - p);
           rightArm.rotation.x = lerp(-3, 2, ep);
           rightArm.rotation.y = lerp(0, 0, ep);
           swordHitCheck();
         } else {
-          // relax back
           rightArm.rotation.x = lerp(rightArm.rotation.x, defaultRightArmRot.x, 0.5);
           rightArm.rotation.y = lerp(rightArm.rotation.y, defaultRightArmRot.y, 0.5);
           sword.rotation.x = lerp(sword.rotation.x, defaultSwordRot.x, 0.5);
@@ -951,44 +892,33 @@
         if (swordTimer >= SWORD_SWING_TIME) { swordSwing = false; swordTimer = 0; rightArm.rotation.copyFrom(defaultRightArmRot); sword.rotation.copyFrom(defaultSwordRot); }
       }
 
-      // BOMBS update
       for (let i = bombs.length - 1; i >= 0; i--) {
         const b = bombs[i]; b.velocity.y += GRAVITY * dt; b.position.addInPlace(b.velocity.scale(dt)); b.life -= dt;
         if (b.position.y <= 0.4) { b.position.y = 0.4; b.velocity.y *= -0.4; b.velocity.x *= 0.6; b.velocity.z *= 0.6; }
         if (b.life <= 0) { explodeBombAt(b.position, 30); try{ b.dispose(); }catch(e){}; bombs.splice(i,1); }
       }
 
-      // NPC AI (single stable loop) - now uses same model, same walk anim, same speed, faces destination
       for (let i = npcs.length - 1; i >= 0; i--) {
         const n = npcs[i];
-
-        // update health bar position each frame
         updateNpcHealthBar(n);
 
-        // safety init
         if (typeof n.velocityY !== 'number' || !isFinite(n.velocityY)) n.velocityY = 0;
         if (!n.groundOffset || !isFinite(n.groundOffset)) n.groundOffset = GROUNDED_Y;
         if (!n.velocity || !(n.velocity instanceof BABYLON.Vector3)) n.velocity = new BABYLON.Vector3(0,0,0);
         if (!n.limbs) n.limbs = {};
 
-        // -------- RAGDOLL HANDLING: if ragdoll, skip AI and simulate flop --------
         if (n.ragdoll) {
-          // gravity
           n.ragdollVel.y += GRAVITY * dt;
-          // horizontal + vertical movement
           n.root.position.addInPlace(n.ragdollVel.scale(dt));
           n.root.position.y += n.velocityY * dt;
-          // damp ragdoll velocity a bit
           n.ragdollVel.scaleInPlace(0.96);
           n.velocityY += GRAVITY * dt;
-          // limb flop
           const limbs = n.limbs || {};
           if (limbs.la) limbs.la.rotation.x += n.ragdollAng.la * dt;
           if (limbs.ra) limbs.ra.rotation.x += n.ragdollAng.ra * dt;
           if (limbs.ll) limbs.ll.rotation.x += n.ragdollAng.ll * dt;
           if (limbs.rl) limbs.rl.rotation.x += n.ragdollAng.rl * dt;
 
-          // raycast down and settle on ground
           const downFromR = n.root.position.add(new BABYLON.Vector3(0, 10, 0));
           const rayR = new BABYLON.Ray(downFromR, new BABYLON.Vector3(0, -1, 0), 30);
           const hitR = scene.pickWithRay(rayR, (m) => m === ground || solidSurfaces.indexOf(m) !== -1);
@@ -997,29 +927,22 @@
             if (n.root.position.y <= settleY) {
               n.root.position.y = settleY;
               n.ragdollVel.y = 0;
-              // slow limb motion
               n.ragdollAng.la *= 0.96; n.ragdollAng.ra *= 0.96; n.ragdollAng.ll *= 0.96; n.ragdollAng.rl *= 0.96;
-              // slowly damp horizontal movement
               n.ragdollVel.scaleInPlace(0.7);
             }
           }
 
-          // despawn ragdoll after 60 seconds
           if (n.ragdollDeathTime && (Date.now() - n.ragdollDeathTime) > 60000) {
             disposeNpc(n);
             continue;
           }
-
-          // skip the rest of AI/walk logic for ragdolled NPCs
           continue;
         }
 
-        // integrate vertical physics
         n.velocityY += GRAVITY * dt;
         n.velocityY = Math.max(-120, Math.min(120, n.velocityY));
         n.root.position.y += n.velocityY * dt;
 
-        // raycast down and snap using SAME logic as player
         const downFrom = n.root.position.add(new BABYLON.Vector3(0,30,0));
         const downRay = new BABYLON.Ray(downFrom, new BABYLON.Vector3(0,-1,0), 200);
         const downRes = scene.pickWithRay(downRay, (m) => m === ground || solidSurfaces.indexOf(m) !== -1);
@@ -1029,10 +952,9 @@
           else n.grounded = false;
         }
 
-        // choose destination occasionally
         if (!n.dest || Math.random() < 0.006 || BABYLON.Vector3.Distance(new BABYLON.Vector3(n.root.position.x,0,n.root.position.z), new BABYLON.Vector3(n.dest.x,0,n.dest.z)) < 0.7) {
-          const rx = n.root.position.x + (Math.random() - 0.5) * 14;
-          const rz = n.root.position.z + (Math.random() - 0.5) * 14;
+          const rx = n.root.position.x + (Math.random() - 0.5) * 60;
+          const rz = n.root.position.z + (Math.random() - 0.5) * 60;
           const from = new BABYLON.Vector3(rx, 60, rz);
           const to = new BABYLON.Vector3(rx, -20, rz);
           const ray = new BABYLON.Ray(from, to.subtract(from).normalize(), 200);
@@ -1042,57 +964,49 @@
           n.dest = new BABYLON.Vector3(rx, ty + n.groundOffset, rz);
         }
 
-        // horizontal: compute dir to destination
         if (n.dest) {
-          const horizontalHere = new BABYLON.Vector3(n.root.position.x, 0, n.root.position.z);
-          const horizontalDest = new BABYLON.Vector3(n.dest.x, 0, n.dest.z);
+          const dx = n.dest.x - n.root.position.x;
+          const dz = n.dest.z - n.root.position.z;
+          if (Math.abs(dx) > 0.0001 || Math.abs(dz) > 0.0001) {
+            const targetYaw = Math.atan2(dx, dz);
+            const curYaw = (typeof n.root.rotation.y === "number") ? n.root.rotation.y : 0;
+            let delta = shortestAngleDelta(curYaw, targetYaw);
+            const maxTurn = (n.turnSpeed || NPC_TURN_SPEED) * dt * (n.speed / 15.0);
+            if (Math.abs(delta) <= maxTurn || Math.hypot(dx, dz) < 0.6) {
+              n.root.rotation.y = targetYaw;
+            } else {
+              if (delta > 0) delta = Math.min(delta, maxTurn);
+              else delta = Math.max(delta, -maxTurn);
+              n.root.rotation.y = curYaw + delta;
+            }
+          }
+
+          const horizontalHere = new BABYLON.Vector3(n.root.position.x,0,n.root.position.z);
+          const horizontalDest = new BABYLON.Vector3(n.dest.x,0,n.dest.z);
           const dir = horizontalDest.subtract(horizontalHere);
           const dist = dir.length();
           if (dist > 0.05) {
-            // rotate to face destination smoothly - same yaw convention as player (atan2(dx, dz))
-            const dx = n.dest.x - n.root.position.x;
-            const dz = n.dest.z - n.root.position.z;
-            if (Math.abs(dx) > 0.0001 || Math.abs(dz) > 0.0001) {
-              const targetYaw = Math.atan2(dx, dz);
-              const curYaw = (typeof n.root.rotation.y === "number") ? n.root.rotation.y : 0;
-              let delta = shortestAngleDelta(curYaw, targetYaw);
-              const maxTurn = (n.turnSpeed || NPC_TURN_SPEED) * dt * (n.speed / 15.0); // scale with speed if desired
-              if (Math.abs(delta) <= maxTurn || dist < 0.6) {
-                n.root.rotation.y = targetYaw; // snap when very small or very close
-              } else {
-                if (delta > 0) delta = Math.min(delta, maxTurn);
-                else delta = Math.max(delta, -maxTurn);
-                n.root.rotation.y = curYaw + delta;
-              }
-            }
-
-            // move toward destination at same forward speed as player
             dir.normalize();
             n.root.position.addInPlace(dir.scale(n.speed * dt));
           }
         }
 
-        // re-align to ground after horizontal move (same as earlier)
         const downFrom2 = n.root.position.add(new BABYLON.Vector3(0, 30, 0));
         const downRay2 = new BABYLON.Ray(downFrom2, new BABYLON.Vector3(0, -1, 0), 200);
         const r2 = scene.pickWithRay(downRay2, (m) => m === ground || solidSurfaces.indexOf(m) !== -1);
         if (r2 && r2.hit && r2.pickedPoint && isFinite(r2.pickedPoint.y)) { n.root.position.y = r2.pickedPoint.y + n.groundOffset; n.velocityY = 0; n.grounded = true; }
 
-        // clamp final vertical position
         if (!isFinite(n.root.position.y)) n.root.position.y = n.groundOffset;
         if (n.root.position.y > 500) n.root.position.y = 500;
         if (n.root.position.y < -50) n.root.position.y = n.groundOffset;
 
-        // apply horizontal knockback velocity
         if (n.velocity && typeof n.velocity.lengthSquared === "function" && n.velocity.lengthSquared() > 0.001) {
           if (!isFinite(n.velocity.x) || !isFinite(n.velocity.y) || !isFinite(n.velocity.z)) n.velocity = new BABYLON.Vector3(0,0,0);
           else { n.root.position.addInPlace(n.velocity.scale(dt)); n.velocity = n.velocity.scale(Math.max(0, 1 - dt*2.8)); }
         }
 
-        // WALK ANIMATION: use EXACT same formulas as player for arms/legs
         try {
           const { la, ra, ll, rl } = n.limbs;
-          // detect horizontal movement by comparing dest vs position
           let movingHorizontally = false;
           if (n.dest) {
             const dx = n.dest.x - n.root.position.x;
@@ -1101,14 +1015,13 @@
           }
 
           if (n.grounded && movingHorizontally) {
-            n.walkTime += dt * 8; // same walk frequency as player
+            n.walkTime += dt * 8;
             const wt = n.walkTime;
             if (ll) ll.rotation.x = Math.sin(wt) * 0.8;
             if (rl) rl.rotation.x = -Math.sin(wt) * 0.8;
             if (la) la.rotation.x = -Math.sin(wt) * 0.6;
             if (ra) ra.rotation.x = Math.sin(wt) * 0.6;
           } else {
-            // relax limbs exactly like player code
             if (ll) ll.rotation.x *= 0.8;
             if (rl) rl.rotation.x *= 0.8;
             if (la) la.rotation.x *= 0.8;
@@ -1119,13 +1032,10 @@
         }
       }
 
-      // Update car prompts and seat detection
       nearCar = null;
       for (let i=0;i<cars.length;i++){
         const car = cars[i];
-        // compute seat world pos from body transform:
         const seatWorld = car.body.getAbsolutePosition().add(BABYLON.Vector3.TransformCoordinates(car.seatLocal, car.body.getWorldMatrix()));
-        // project seat to screen
         const proj = BABYLON.Vector3.Project(seatWorld, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
         if (car.prompt && isFinite(proj.x) && isFinite(proj.y)) {
           car.prompt.isVisible = true;
@@ -1135,28 +1045,22 @@
           car.prompt.isVisible = false;
         }
 
-        // check near
         const d = BABYLON.Vector3.Distance(player.position, car.root.position.add(car.body.position));
         if (d < CAR_ENTER_DISTANCE && !playerCar && !car.occupant) {
           nearCar = car;
           if (car.prompt) car.prompt.isVisible = true;
-          // small visual emphasis
           if (car.prompt) car.prompt.background = "rgba(0,0,0,0.75)";
         } else {
           if (car.prompt && !car.occupant) car.prompt.isVisible = false;
         }
       }
 
-      // If player is in car, update its prompt off and handle collisions (already in car section)
       if (playerCar) {
         checkCarNpcCollisions(playerCar, dt);
       }
 
     });
 
-    /* ---------------------------
-       UI helpers / cleanup / start loop
-       --------------------------- */
     function rebuildHotbarCounts() { buildHotbar(); }
     window.addEventListener("beforeunload", () => { try { hudHotbar.remove(); } catch(e){}; npcs.forEach(n => { try { n.root.getChildren().forEach(c=>c.dispose()); n.root.dispose(); } catch(e){} }); bombs.forEach(b => { try{ b.dispose(); } catch(e){} }); cars.forEach(c => { try{ if (c.prompt) ui.removeControl(c.prompt); c.root.getChildren().forEach(cc=>cc.dispose()); c.root.dispose(); }catch(e){} });});
     engine.runRenderLoop(() => scene.render());
