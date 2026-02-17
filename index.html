@@ -179,6 +179,92 @@
       background: rgba(0, 0, 0, 0.7);
       z-index: 9999;
     }
+
+    /* Armor Shop Menu Styles */
+    #armorShopMenu {
+      display: none;
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10000;
+      background: rgba(0, 0, 0, 0.95);
+      border: 4px solid #87CEEB;
+      border-radius: 15px;
+      padding: 40px 60px;
+      text-align: center;
+      box-shadow: 0 0 50px rgba(135, 206, 235, 0.8);
+    }
+
+    #armorShopMenu .shop-title {
+      font-size: 48px;
+      font-weight: bold;
+      color: #87CEEB;
+      margin: 0 0 30px 0;
+      text-shadow: 0 0 20px rgba(135, 206, 235, 0.8);
+      letter-spacing: 2px;
+      font-family: Arial Black, sans-serif;
+    }
+
+    .armor-option {
+      margin: 15px 0;
+      padding: 15px 30px;
+      font-size: 18px;
+      font-weight: bold;
+      background: linear-gradient(135deg, #444 0%, #222 100%);
+      color: white;
+      border: 2px solid #87CEEB;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      box-shadow: 0 0 10px rgba(135, 206, 235, 0.4);
+    }
+
+    .armor-option:hover {
+      background: linear-gradient(135deg, #555 0%, #333 100%);
+      box-shadow: 0 0 20px rgba(135, 206, 235, 0.8);
+      transform: scale(1.05);
+    }
+
+    .armor-option:active {
+      transform: scale(0.95);
+    }
+
+    .armor-price {
+      font-size: 14px;
+      color: #7FFF00;
+      margin-top: 5px;
+    }
+
+    #armorShopOverlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 9999;
+    }
+
+    /* Aiming zoom overlay */
+    .scope-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at center, transparent 20%, rgba(0,0,0,0.8) 100%);
+      z-index: 9997;
+      pointer-events: none;
+    }
+
+    .scope-overlay.active {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -196,6 +282,25 @@
   <div class="death-text">DEAD!</div>
   <button class="death-button" onclick="reloadGame()">RELOAD</button>
 </div>
+<div id="armorShopOverlay"></div>
+<div id="armorShopMenu">
+  <div class="shop-title">ARMOR SHOP</div>
+  <button class="armor-option" onclick="buyArmor(25, 100)">
+    BASIC ARMOR
+    <div class="armor-price">$100</div>
+  </button>
+  <button class="armor-option" onclick="buyArmor(50, 250)">
+    STANDARD ARMOR
+    <div class="armor-price">$250</div>
+  </button>
+  <button class="armor-option" onclick="buyArmor(100, 500)">
+    ELITE ARMOR
+    <div class="armor-price">$500</div>
+  </button>
+  <button class="armor-option" onclick="closeArmorShop()" style="margin-top: 30px; background: linear-gradient(135deg, #8B0000 0%, #660000 100%); border-color: #FF6B6B;">
+    CANCEL
+  </button>
+</div>
 <div id="hudHealth">Health: <span id="healthVal">100</span>%</div>
 <div id="hudArmor">Armor: <span id="armorVal">0</span>%</div>
 <div id="hudMoney">$ <span id="moneyVal">0</span></div>
@@ -210,7 +315,8 @@
   <div class="crosshair-line crosshair-h"></div>
   <div class="crosshair-line crosshair-v"></div>
 </div>
-<div id="hint">1-5: Weapons  •  E: Vehicle  •  Space: Jump  •  Shift: Sprint  •  Click to aim</div>
+<div class="scope-overlay" id="scopeOverlay"></div>
+<div id="hint">1-5: Weapons  •  E: Vehicle/Shop  •  Space: Jump  •  Shift: Sprint  •  Right Click: Aim  •  Click to fire</div>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
@@ -224,6 +330,26 @@ window.reloadGame = function() {
   location.reload();
 };
 
+window.buyArmor = function(amount, cost) {
+  if (gameState.money >= cost) {
+    gameState.money -= cost;
+    gameState.armor = Math.min(100, gameState.armor + amount);
+    closeArmorShop();
+  } else {
+    alert("Not enough money! You need $" + cost);
+  }
+};
+
+window.closeArmorShop = function() {
+  document.getElementById("armorShopMenu").style.display = "none";
+  document.getElementById("armorShopOverlay").style.display = "none";
+};
+
+window.openArmorShop = function() {
+  document.getElementById("armorShopMenu").style.display = "block";
+  document.getElementById("armorShopOverlay").style.display = "block";
+};
+
 (() => {
   try {
     // GTA5 Game State
@@ -234,8 +360,11 @@ window.reloadGame = function() {
       wantedLevel: 0,
       wantedTimer: 0,
       isSprinting: false,
-      isDead: false
+      isDead: false,
+      isAiming: false
     };
+
+    window.gameState = gameState;
 
     // Death popup function
     function showDeathScreen() {
@@ -387,6 +516,8 @@ window.reloadGame = function() {
 
     const input = {};
     let nearCar = null;
+    let nearArmorShop = null;
+
     scene.onKeyboardObservable.add(kb => {
       const key = (kb.event && (kb.event.code || kb.event.key)) ? (kb.event.code || kb.event.key) : '';
       const keyLower = (kb.event && kb.event.key) ? kb.event.key.toLowerCase() : key;
@@ -405,6 +536,7 @@ window.reloadGame = function() {
         if (keyLower === "e") {
           if (playerCar) { exitCar(); }
           else if (nearCar) { enterCar(nearCar); }
+          else if (nearArmorShop) { openArmorShop(); }
         }
       } else if (kb.type === BABYLON.KeyboardEventTypes.KEYUP) {
         if (key === "Space" || keyLower === " ") input[" "] = false;
@@ -414,6 +546,30 @@ window.reloadGame = function() {
         input[keyLower] = false;
       }
     });
+
+    // Right-click aiming
+    document.addEventListener("mousedown", (e) => {
+      if (e.button === 2) { // Right mouse button
+        const it = inventory[activeIndex];
+        if (it && it.id !== "bomb") {
+          gameState.isAiming = true;
+          document.getElementById("scopeOverlay").classList.add("active");
+          camera.radius = 8;
+          camera.heightOffset = 3;
+        }
+      }
+    });
+
+    document.addEventListener("mouseup", (e) => {
+      if (e.button === 2) {
+        gameState.isAiming = false;
+        document.getElementById("scopeOverlay").classList.remove("active");
+        camera.radius = 24;
+        camera.heightOffset = 8;
+      }
+    });
+
+    document.addEventListener("contextmenu", (e) => e.preventDefault());
 
     canvas.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -549,6 +705,58 @@ window.reloadGame = function() {
     function wrapAngle(a) { a = (a + Math.PI) % (Math.PI * 2); if (a < 0) a += Math.PI * 2; return a - Math.PI; }
     function shortestAngleDelta(from, to) { return wrapAngle(to - from); }
     const NPC_TURN_SPEED = 6.0;
+
+// Health kits and armor shops
+const healthKits = [];
+const healthKitSpawns = []; // Track spawn locations and respawn timers
+const armorShops = [];
+
+const healthKitMat = new BABYLON.StandardMaterial("healthKitMat", scene);
+healthKitMat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+
+const armorShopMat = new BABYLON.StandardMaterial("armorShopMat", scene);
+armorShopMat.diffuseColor = new BABYLON.Color3(0.2, 0.5, 1.0);
+
+const HEALTH_KIT_RESPAWN_TIME = 15; // Respawn after 15 seconds
+
+// Spawn health kits throughout the map
+for (let i = 0; i < 8; i++) {
+  const x = Math.random() * 300 - 150;
+  const z = Math.random() * 300 - 150;
+  const kit = BABYLON.MeshBuilder.CreateBox(`healthKit_${i}`, { size: 1.2 }, scene);
+  kit.position.set(x, 1, z);
+  kit.material = healthKitMat;
+  kit.isHealthKit = true;
+  healthKits.push(kit);
+  healthKitSpawns.push({
+    kit: kit,
+    x: x,
+    z: z,
+    respawnTimer: 0,
+    isActive: true
+  });
+}
+    // Spawn armor shops throughout the map
+    for (let i = 0; i < 4; i++) {
+      const x = Math.random() * 300 - 150;
+      const z = Math.random() * 300 - 150;
+      const shop = BABYLON.MeshBuilder.CreateBox(`armorShop_${i}`, { width: 3, height: 3, depth: 3 }, scene);
+      shop.position.set(x, 1.5, z);
+      shop.material = armorShopMat;
+      shop.isArmorShop = true;
+
+      // Create a prompt for the armor shop
+      const prompt = new BABYLON.GUI.Rectangle();
+      prompt.width = "110px"; prompt.height = "28px"; prompt.cornerRadius = 6; prompt.thickness = 1;
+      prompt.background = "rgba(0,0,0,0.6)"; prompt.color = "#87CEEB"; prompt.isHitTestVisible = false;
+      const label = new BABYLON.GUI.TextBlock();
+      label.text = "E for armor"; label.fontSize = 14;
+      prompt.addControl(label);
+      prompt.isVisible = false;
+      ui.addControl(prompt);
+      shop.prompt = prompt;
+      armorShops.push(shop);
+    }
 
     function createNpcHealthBar(n) {
       const w = 64;
@@ -764,7 +972,7 @@ window.reloadGame = function() {
       
       const fireRate = it.fireRate;
       const damage = it.damage;
-      const spread = it.spread;
+      const spread = gameState.isAiming ? it.spread * 0.3 : it.spread;
       const pellets = it.pellets;
       
       gunCooldown = fireRate;
@@ -1271,6 +1479,57 @@ window.reloadGame = function() {
         }
       }
 
+// Update health kit positions and check for pickup + respawning
+for (let i = healthKitSpawns.length - 1; i >= 0; i--) {
+  const spawn = healthKitSpawns[i];
+  
+  if (spawn.isActive) {
+    const d = BABYLON.Vector3.Distance(player.position, spawn.kit.position);
+    if (d < 2.5) {
+      gameState.health = Math.min(100, gameState.health + 50);
+      spawn.kit.setEnabled(false);
+      spawn.isActive = false;
+      spawn.respawnTimer = HEALTH_KIT_RESPAWN_TIME;
+    }
+  } else {
+    // Count down respawn timer
+    spawn.respawnTimer -= dt;
+    if (spawn.respawnTimer <= 0) {
+      spawn.kit.setEnabled(true);
+      spawn.kit.position.set(spawn.x, 1, spawn.z);
+      spawn.isActive = true;
+    }
+  }
+}
+
+      // Update armor shop positions and prompts
+      nearArmorShop = null;
+      for (let i = 0; i < armorShops.length; i++) {
+        const shop = armorShops[i];
+        const shopPos = shop.position;
+        const d = BABYLON.Vector3.Distance(player.position, shopPos);
+        
+        if (shop.prompt) {
+          const proj = BABYLON.Vector3.Project(shopPos, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
+          if (isFinite(proj.x) && isFinite(proj.y)) {
+            shop.prompt.isVisible = true;
+            shop.prompt.left = proj.x - engine.getRenderWidth()/2 + "px";
+            shop.prompt.top = proj.y - engine.getRenderHeight()/2 + "px";
+          } else {
+            shop.prompt.isVisible = false;
+          }
+        }
+        
+        const SHOP_DISTANCE = 4.0;
+        if (d < SHOP_DISTANCE && !playerCar) {
+          nearArmorShop = shop;
+          if (shop.prompt) {
+            shop.prompt.isVisible = true;
+            shop.prompt.background = "rgba(0,0,0,0.75)";
+          }
+        }
+      }
+
       for (let i = npcs.length - 1; i >= 0; i--) {
         const n = npcs[i];
         updateNpcHealthBar(n);
@@ -1467,6 +1726,12 @@ window.reloadGame = function() {
           c.root.getChildren().forEach(cc=>cc.dispose()); 
           c.root.dispose(); 
         }catch(e){} 
+      });
+      healthKitSpawns.forEach(spawn => {
+  try { spawn.kit.dispose(); } catch(e) {}
+});
+      armorShops.forEach(s => {
+        try { if (s.prompt) ui.removeControl(s.prompt); s.dispose(); } catch(e) {}
       });
     });
     
